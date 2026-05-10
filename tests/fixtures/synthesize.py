@@ -23,7 +23,12 @@ _AMBIGUOUS_PAIRS = [("A", "T"), ("C", "G")]
 
 @dataclass(frozen=True)
 class SyntheticPanelSpec:
-    """Knobs for the synthetic panel generator."""
+    """Knobs for the synthetic panel generator.
+
+    `seed` controls the random stream. For tests that need two panels with the
+    SAME variants but DIFFERENT samples, use the same `variant_seed` and
+    different `sample_seed` / `sample_id_prefix`.
+    """
 
     n_samples: int = 500
     n_variants: int = 50_000
@@ -33,6 +38,9 @@ class SyntheticPanelSpec:
     seed: int = 0xCA753E
     ambiguous_strand_fraction: float = 0.06  # ~5-8% A/T+C/G in 1240k design (HLD)
     missing_rate: float = 0.05
+    sample_id_prefix: str = "S"
+    variant_seed: int | None = None  # if set, used for variant generation; else `seed`
+    sample_seed: int | None = None  # if set, used for samples/genotypes; else `seed`
 
 
 def _build_variants(
@@ -121,18 +129,23 @@ def synthesize_pfile(spec: SyntheticPanelSpec, out_prefix: Path) -> InputDescrip
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
 
-    rng = np.random.default_rng(spec.seed)
+    variant_rng = np.random.default_rng(
+        spec.variant_seed if spec.variant_seed is not None else spec.seed
+    )
+    sample_rng = np.random.default_rng(
+        spec.sample_seed if spec.sample_seed is not None else spec.seed
+    )
 
-    chroms, positions, ids, refs, alts = _build_variants(spec, rng)
+    chroms, positions, ids, refs, alts = _build_variants(spec, variant_rng)
     n_variants = len(chroms)
 
     # Sample metadata.
-    iids = [f"S{i:05d}" for i in range(spec.n_samples)]
-    sex = rng.integers(1, 3, size=spec.n_samples)  # plink: 1=male, 2=female
+    iids = [f"{spec.sample_id_prefix}{i:05d}" for i in range(spec.n_samples)]
+    sex = sample_rng.integers(1, 3, size=spec.n_samples)  # plink: 1=male, 2=female
     pops = [f"pop_{i % spec.n_populations:02d}" for i in range(spec.n_samples)]
-    is_pseudohap = rng.random(spec.n_samples) < spec.pseudohaploid_fraction
+    is_pseudohap = sample_rng.random(spec.n_samples) < spec.pseudohaploid_fraction
 
-    geno = _build_genotypes(n_variants, spec.n_samples, is_pseudohap, spec, rng)
+    geno = _build_genotypes(n_variants, spec.n_samples, is_pseudohap, spec, sample_rng)
 
     out_pgen = Path(str(out_prefix) + ".pgen")
     out_pvar = Path(str(out_prefix) + ".pvar")

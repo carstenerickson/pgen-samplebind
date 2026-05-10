@@ -1,16 +1,20 @@
-""".psam parsing, population-column auto-detect, basic column ops.
+""".psam parsing, population-column auto-detect, sample identity resolution,
+column union, write.
 
-Per LLD §3.5. Day 1 implements only the read paths needed by `inspect`;
-collision resolution, column union, and relabel are deferred to later days.
+Per LLD §3.5. Day 1: read paths. Day 3: resolve_sample_identity, merge_psams,
+write_psam. --on-collision suffix and --relabel-from deferred to later days.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .errors import InvariantViolation, IOFailure, UsageError
+from .types import MergePolicy, SampleIdentityPlan
 
 _POP_COLUMN_FALLBACKS = ("POP", "PHENO", "PHENO1")
 
@@ -101,3 +105,107 @@ def add_fid_from_pop(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["FID"] = out["POP"]
     return out
+
+
+def resolve_sample_identity(
+    psams: list[pd.DataFrame],
+    policy: MergePolicy,
+    target_idx: int | None,
+) -> SampleIdentityPlan:
+    """Compute the SampleIdentityPlan from input psams + --on-collision policy.
+    Per HLD §IID collision handling (v3.5) and LLD §3.5.
+
+    Day 3 supports --on-collision {error, first}. The `suffix` scheme
+    (general `_<input_idx>`, target `_target`, idempotent retry) is
+    deferred to Day 8 alongside --target mode work.
+
+    Raises:
+        InvariantViolation: collision under --on-collision error.
+        NotImplementedError: --on-collision suffix (until Day 8).
+    """
+    if policy.on_collision == "suffix":
+        raise NotImplementedError(
+            "--on-collision suffix is deferred to project Day 8. "
+            "For Day 3 use --on-collision {error, first}."
+        )
+
+    output_iids: list[str] = []
+    keep_masks: list[np.ndarray[Any, Any]] = []
+    output_indices_per_input: list[np.ndarray[Any, Any]] = []
+    seen: set[str] = set()
+
+    for input_idx, psam in enumerate(psams):
+        iids = psam["IID"].tolist()
+        n = len(iids)
+        keep = np.ones(n, dtype=bool)
+        out_idx = np.full(n, -1, dtype=np.int64)
+
+        for i, iid in enumerate(iids):
+            if iid in seen:
+                if policy.on_collision == "error":
+                    raise InvariantViolation(
+                        f"--on-collision error: IID {iid!r} appears in input[{input_idx}] "
+                        f"and an earlier input"
+                    )
+                # first: drop this duplicate (mask out)
+                keep[i] = False
+            else:
+                seen.add(iid)
+                out_idx[i] = len(output_iids)
+                output_iids.append(iid)
+
+        keep_masks.append(keep)
+        output_indices_per_input.append(out_idx)
+
+    return SampleIdentityPlan(
+        output_iids=tuple(output_iids),
+        per_input_keep_mask=tuple(keep_masks),
+        per_input_output_indices=tuple(output_indices_per_input),
+    )
+
+
+def merge_psams(
+    psams: list[pd.DataFrame],
+    sample_plan: SampleIdentityPlan,
+) -> pd.DataFrame:
+    """Concatenate psams using the resolved sample identity, with column union.
+
+    Day 3: simple concat with NA fill across input column unions. Conflict
+    detection (same column name, conflicting values for shared samples) is
+    deferred to Day 4 reporting work.
+
+    Returns a DataFrame with `len(sample_plan.output_iids)` rows in the
+    output_iids order.
+    """
+    kept = []
+    for psam, keep_mask in zip(psams, sample_plan.per_input_keep_mask, strict=True):
+        kept.append(psam.iloc[keep_mask].reset_index(drop=True))
+    merged = pd.concat(kept, ignore_index=True, sort=False)
+
+    # Replace IIDs with the (possibly renamed-via-suffix-future) output_iids,
+    # in case sample_plan introduces suffixes. Day 3 uses identity for first/
+    # error policies, so this is a no-op here.
+    merged["IID"] = list(sample_plan.output_iids)
+    return merged
+
+
+def write_psam(df: pd.DataFrame, path: Path) -> None:
+    """Write canonical .psam: column order IID FID SEX POP PSEUDOHAPLOID then
+    extras in alphabetical order. Tab-delimited, header line prefixed with '#'.
+
+    Raises:
+        IOFailure: write failed.
+    """
+    canonical = ["IID", "FID", "SEX", "POP", "PSEUDOHAPLOID"]
+    extras = sorted(c for c in df.columns if c not in canonical)
+    present_canonical = [c for c in canonical if c in df.columns]
+    column_order = present_canonical + extras
+
+    out = df[column_order].copy()
+    # Plink2 convention: header line starts with `#`.
+    # The first column gets `#` prefix.
+    out.columns = ["#" + c if i == 0 else c for i, c in enumerate(out.columns)]
+    try:
+        out.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
+    except OSError as e:
+        raise IOFailure(f"cannot write {path}: {e}") from e
