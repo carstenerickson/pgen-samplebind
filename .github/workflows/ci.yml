@@ -24,9 +24,27 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
 
-      # plink2 install (via micromamba+bioconda) deferred to Day 6 when the
-      # EIGENSTRAT/BFILE shell-out path lands. Day 1-5 tests are PFILE-only
-      # via pgenlib (a pure-Python wheel install).
+      # plink2 v2.0.0-a.7.1 (HLD-verified version) installed directly from
+      # the upstream GitHub release. Bioconda's latest is 2.0.0a.6.9 which
+      # PRE-DATES the EIGENSOFT --eigfile --make-pgen support introduced in
+      # v2.0.0-a.7.0; HLD test #15 (plink2 a7.x quirks) requires a.7.x.
+      - name: Install plink2 v2.0.0-a.7.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-X64)   ASSET="plink2_linux_x86_64.zip" ;;
+            macOS-ARM64) ASSET="plink2_mac_arm64.zip" ;;
+            macOS-X64)   ASSET="plink2_mac.zip" ;;
+            *) echo "unsupported runner ${RUNNER_OS}-${RUNNER_ARCH}"; exit 1 ;;
+          esac
+          URL="https://github.com/chrchang/plink-ng/releases/download/v2.0.0-a.7.1/${ASSET}"
+          mkdir -p "$RUNNER_TEMP/plink2"
+          curl -fsSL -o "$RUNNER_TEMP/plink2.zip" "$URL"
+          unzip -q "$RUNNER_TEMP/plink2.zip" -d "$RUNNER_TEMP/plink2"
+          chmod +x "$RUNNER_TEMP/plink2/plink2"
+          echo "$RUNNER_TEMP/plink2" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/plink2/plink2" --version
 
       - name: Install package + dev deps
         run: |
