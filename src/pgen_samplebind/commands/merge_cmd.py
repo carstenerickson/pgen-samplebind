@@ -19,10 +19,30 @@ from pathlib import Path
 import numpy as np
 
 from .. import __version__, psam, pseudohaploid, reporting
+from ..errors import PgenSamplebindError
 from ..formats import prepared_input
 from ..merge import merge_inputs
 from ..pvar import check_max_alleles, count_raw_variants
 from ..types import MergeContext, MergePolicy
+
+
+def _unlink_output_triplet(*paths: Path) -> None:
+    """Best-effort unlink of partial output files. Per LLD §4.1 fix #6:
+    on PgenSamplebindError mid-pass-2 / psam-finalization, the orchestrator
+    unlinks the .pgen / .pvar / .psam triplet so downstream pipelines never
+    silently consume a half-built output. Atomic-rename across the triplet
+    isn't actually atomic (three separate renames; NFS doesn't even
+    guarantee single-file atomicity), so unlink-on-failure is the simpler
+    and substantively equivalent choice.
+    """
+    for p in paths:
+        try:
+            if p.exists():
+                p.unlink()
+        except OSError:
+            # Best-effort; if we can't unlink (permissions, fs error), the
+            # original PgenSamplebindError is more important.
+            pass
 
 
 def run_merge(
@@ -92,34 +112,43 @@ def run_merge(
             collect_variant_rows=(policy.report_json_include_rows and report_json_path is not None),
         )
 
-        # Step 12: merge_inputs (pass 1 + gates + pass 2; writes .pgen + .pvar +
-        # report TSV if ctx.report_tsv_path; populates counters.variant_rows
-        # if ctx.collect_variant_rows).
-        counters = merge_inputs(descriptors, out_pgen_path, out_pvar_path, ctx)
+        # Steps 12-15: merge_inputs + psam finalization, wrapped in the
+        # output-cleanup wrapper per LLD §4.1 fix #6. On any PgenSamplebindError
+        # (gate failure, IO failure, invariant violation), unlink the partial
+        # triplet before re-raising so downstream pipelines never consume a
+        # half-built output.
+        try:
+            # Step 12: merge_inputs (pass 1 + gates + pass 2; writes .pgen +
+            # .pvar + report TSV if ctx.report_tsv_path; populates
+            # counters.variant_rows if ctx.collect_variant_rows).
+            counters = merge_inputs(descriptors, out_pgen_path, out_pvar_path, ctx)
 
-        # Step 13: psam finalization
-        merged_psam = psam.merge_psams(psam_dfs, sample_plan)
+            # Step 13: psam finalization
+            merged_psam = psam.merge_psams(psam_dfs, sample_plan)
 
-        # Step 14: classify pseudohaploid from counters; assign PSEUDOHAPLOID column.
-        # Row-order invariant assertion (LLD §4.1 fix #1):
-        if __debug__:
-            for i, (iid_in_counters, _, _) in enumerate(counters.per_sample_het):
-                assert (
-                    iid_in_counters == sample_plan.output_iids[i] == merged_psam.iloc[i]["IID"]
-                ), (
-                    f"row-order invariant violated at i={i}: "
-                    f"counters={iid_in_counters!r}, "
-                    f"plan={sample_plan.output_iids[i]!r}, "
-                    f"psam={merged_psam.iloc[i]['IID']!r}"
-                )
+            # Step 14: classify pseudohaploid; assign PSEUDOHAPLOID column.
+            # Row-order invariant assertion (LLD §4.1 fix #1):
+            if __debug__:
+                for i, (iid_in_counters, _, _) in enumerate(counters.per_sample_het):
+                    assert (
+                        iid_in_counters == sample_plan.output_iids[i] == merged_psam.iloc[i]["IID"]
+                    ), (
+                        f"row-order invariant violated at i={i}: "
+                        f"counters={iid_in_counters!r}, "
+                        f"plan={sample_plan.output_iids[i]!r}, "
+                        f"psam={merged_psam.iloc[i]['IID']!r}"
+                    )
 
-        het_array = np.array([h for _, h, _ in counters.per_sample_het], dtype=np.int64)
-        called_array = np.array([c for _, _, c in counters.per_sample_het], dtype=np.int64)
-        statuses = pseudohaploid.classify_all(het_array, called_array)
-        merged_psam["PSEUDOHAPLOID"] = [s.value for s in statuses]
+            het_array = np.array([h for _, h, _ in counters.per_sample_het], dtype=np.int64)
+            called_array = np.array([c for _, _, c in counters.per_sample_het], dtype=np.int64)
+            statuses = pseudohaploid.classify_all(het_array, called_array)
+            merged_psam["PSEUDOHAPLOID"] = [s.value for s in statuses]
 
-        # Step 15: write .psam
-        psam.write_psam(merged_psam, out_psam_path)
+            # Step 15: write .psam
+            psam.write_psam(merged_psam, out_psam_path)
+        except PgenSamplebindError:
+            _unlink_output_triplet(out_pgen_path, out_pvar_path, out_psam_path)
+            raise
 
     elapsed = time.perf_counter() - started
 

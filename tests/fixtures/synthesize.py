@@ -186,3 +186,14 @@ def synthesize_pfile(spec: SyntheticPanelSpec, out_prefix: Path) -> InputDescrip
         is_target=False,
         eigfile_tempdir=None,
     )
+
+
+# Note: a `synthesize_eigenstrat` that bypasses plink2 was attempted but
+# plink2's `--eigfile` requires the binary PACKEDANCESTRYMAP format
+# (`GENO ` header + bit-packed genotypes), not the simple ASCII per-line
+# format that older EIGENSOFT tools accept. Writing PACKEDANCESTRYMAP
+# directly is non-trivial; tests that need a valid EIGENSTRAT fixture
+# use `tests.fixtures.modifiers.pfile_to_eigenstrat` (plink2 shell-out
+# from a PFILE produced by synthesize_pfile). The dependency boundary
+# we care about is "tests don't go through our tool to generate inputs
+# for itself" — using plink2 directly preserves that.

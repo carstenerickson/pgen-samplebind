@@ -1,19 +1,25 @@
 """Format detection, EIGENSTRAT/BFILE pre-conversion, tempdir lifecycle.
 
-Per LLD §3.3. Day 1 implements PFILE detection only; BFILE and EIGENSTRAT
-shell out to plink2 (deferred to later days per HLD project plan Day 6).
+Per LLD §3.3. Day 6 lights up BFILE and EIGENSTRAT input via a plink2
+shell-out into a per-invocation `tempfile.TemporaryDirectory`. Cleanup
+on success OR failure happens via the TemporaryDirectory context exit.
 """
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from .errors import UsageError
+from .errors import IOFailure, UsageError
 from .types import InputDescriptor, InputFormat
+
+# Tempdir prefix used for both EIGENSTRAT and BFILE pre-conversion.
+# Tests grep $TMPDIR for this prefix to verify cleanup-on-failure.
+_TEMPDIR_PREFIX = "pgen-samplebind-"
 
 _KNOWN_SUFFIXES = frozenset(
     {".pgen", ".pvar", ".psam", ".bed", ".bim", ".fam", ".geno", ".snp", ".ind"}
@@ -102,6 +108,91 @@ def check_plink2_available() -> str | None:
     return result.stdout.strip().splitlines()[0] if result.stdout else None
 
 
+def _format_chrom_range(include_chrom: tuple[int, ...]) -> str:
+    """Convert a tuple of normalized chrom ints to plink2's --chr syntax.
+
+    (1, 2, ..., 22)            → "1-22"
+    (1, 2, ..., 22, 23, 24, 26) → "1-22,X,Y,MT"
+    Falls back to comma-listing on non-contiguous ranges.
+    """
+    if not include_chrom:
+        return ""
+    int_to_named = {23: "X", 24: "Y", 25: "XY", 26: "MT"}
+    sorted_chroms = sorted(set(include_chrom))
+    nums = [c for c in sorted_chroms if c <= 22]
+    others = [c for c in sorted_chroms if c > 22]
+    parts: list[str] = []
+    if nums:
+        if nums == list(range(nums[0], nums[-1] + 1)):
+            parts.append(f"{nums[0]}-{nums[-1]}")
+        else:
+            parts.extend(str(c) for c in nums)
+    parts.extend(int_to_named.get(c, str(c)) for c in others)
+    return ",".join(parts)
+
+
+def _run_plink2_convert(
+    fmt: InputFormat,
+    in_prefix: Path,
+    out_prefix: Path,
+    include_chrom: tuple[int, ...],
+) -> None:
+    """Shell out to plink2 to convert BFILE/EIGENSTRAT → PFILE at out_prefix.
+
+    Per LLD §3.3 subprocess hardening pin: shell=False, list args,
+    check=False (we capture stderr ourselves), capture_output=True.
+
+    Raises:
+        IOFailure: plink2 missing from PATH; plink2 returned non-zero
+            (last 20 lines of stderr surfaced in message).
+    """
+    plink2 = shutil.which("plink2")
+    if plink2 is None:
+        raise IOFailure(
+            f"plink2 not found on PATH; required for {fmt.value} input. "
+            f"Install plink2 v2.x (the HLD-verified version is v2.0.0-a.7.1) "
+            f"or use PFILE input only."
+        )
+
+    flag = "--eigfile" if fmt is InputFormat.EIGENSTRAT else "--bfile"
+    chrom_arg = _format_chrom_range(include_chrom)
+    cmd: list[str] = [
+        plink2,
+        flag,
+        str(in_prefix),
+        "--make-pgen",
+        "--out",
+        str(out_prefix),
+        "--allow-extra-chr",
+    ]
+    if chrom_arg:
+        cmd.extend(["--chr", chrom_arg])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        raise IOFailure(f"plink2 subprocess failed to launch: {e}") from e
+
+    if result.returncode != 0:
+        stderr_tail = "\n".join(result.stderr.splitlines()[-20:])
+        if not stderr_tail.strip():
+            stderr_tail = "(no stderr; check stdout)\n" + "\n".join(
+                result.stdout.splitlines()[-20:]
+            )
+        raise IOFailure(
+            f"plink2 subprocess failed converting {fmt.value} input "
+            f"{in_prefix} (exit {result.returncode}):\n"
+            f"command: {' '.join(cmd)}\n"
+            f"stderr (last 20 lines):\n{stderr_tail}"
+        )
+
+
 @contextmanager
 def prepared_input(
     prefix: Path,
@@ -113,10 +204,19 @@ def prepared_input(
     PFILE: pure resolution. BFILE/EIGENSTRAT: shells out to
     `plink2 --bfile/--eigfile <prefix> --make-pgen` in a per-invocation
     `tempfile.TemporaryDirectory`. Tempdir is cleaned on context exit
-    (success OR failure).
+    (success OR failure) — `TemporaryDirectory.__exit__` runs even on
+    uncaught exceptions, so partial-conversion artifacts never leak.
 
-    Day 1 status: PFILE works end-to-end. BFILE and EIGENSTRAT raise
-    NotImplementedError (deferred to project Day 6 per HLD).
+    Per HLD §EIGENSTRAT a7.x quirks: plink2 v2.0.0-a.7.x's
+    `--eigfile --make-pgen` preserves the population label as `PHENO1`
+    (not stripped), emits no FID column, and doesn't need the
+    .ind-re-read awk dance. The orchestrator's existing detect_population_column
+    + rename_to_pop + add_fid_from_pop flow handles `PHENO1 → POP` and
+    `FID = POP` post-conversion (no special path needed here).
+
+    Per HLD §Format detection: `--chr 1-22 --allow-extra-chr` is the
+    default chrom filter (autosomes); override via `include_chrom` for
+    workflows that need sex chromosomes.
 
     Raises:
         UsageError: format unrecognized.
@@ -140,9 +240,21 @@ def prepared_input(
         yield desc
         return
 
-    # BFILE and EIGENSTRAT both need plink2 conversion to PFILE.
-    raise NotImplementedError(
-        f"{fmt.value} input is deferred to project Day 6 per HLD §Project plan. "
-        f"For Day 1, only PFILE input is supported. To work around, convert manually: "
-        f"plink2 --{fmt.value} {base} --make-pgen --out converted"
-    )
+    # BFILE and EIGENSTRAT: convert to PFILE in a per-invocation tempdir.
+    with tempfile.TemporaryDirectory(prefix=_TEMPDIR_PREFIX) as tmpdir_str:
+        tmpdir = Path(tmpdir_str)
+        out_prefix = tmpdir / base.name
+
+        _run_plink2_convert(fmt, base, out_prefix, include_chrom)
+
+        desc = InputDescriptor(
+            path=prefix,
+            pgen_path=Path(str(out_prefix) + ".pgen"),
+            pvar_path=Path(str(out_prefix) + ".pvar"),
+            psam_path=Path(str(out_prefix) + ".psam"),
+            fmt=fmt,
+            is_target=is_target,
+            eigfile_tempdir=tmpdir,
+        )
+        yield desc
+        # tmpdir auto-removed on context exit (TemporaryDirectory)

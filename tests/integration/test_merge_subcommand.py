@@ -201,8 +201,9 @@ class TestMergePsamStructure:
 
         df = pd.read_csv(Path(str(out) + ".psam"), sep="\t")
         cols = [c.lstrip("#") for c in df.columns]
-        # Canonical column order per LLD §3.5
-        assert cols[:5] == ["IID", "FID", "SEX", "POP", "PSEUDOHAPLOID"]
+        # Canonical column order per LLD §3.5: FID first (plink2 .psam spec
+        # requires FID to be the first column when present, header `#FID...`).
+        assert cols[:5] == ["FID", "IID", "SEX", "POP", "PSEUDOHAPLOID"]
 
     def test_fid_equals_pop(self, panel_a: Path, panel_b: Path, tmp_path: Path) -> None:
         """HLD §Output PFILE: FID populated equal to POP for AT2 compatibility."""

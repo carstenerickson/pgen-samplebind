@@ -187,3 +187,56 @@ def find_unambiguous_variant_indices(in_prefix: Path) -> np.ndarray:
         (pvar_df["REF"] == "G") & (pvar_df["ALT"] == "C")
     )
     return np.where(~(is_at | is_cg))[0]
+
+
+def pfile_to_eigenstrat(pfile_prefix: Path, out_prefix: Path) -> Path:
+    """Convert a PFILE to EIGENSTRAT (.geno/.snp/.ind) via plink2 shell-out.
+
+    Used by HLD tests 7, 8, 10 to bootstrap valid PACKEDANCESTRYMAP
+    EIGENSTRAT fixtures (plink2's --eigfile requires the binary header'd
+    format; the simple ASCII per-line format isn't accepted).
+
+    Returns out_prefix on success; raises subprocess.CalledProcessError
+    on plink2 failure.
+    """
+    import shutil
+    import subprocess
+
+    plink2 = shutil.which("plink2")
+    if plink2 is None:
+        raise RuntimeError(
+            "plink2 not on PATH; required for pfile_to_eigenstrat. "
+            "Install plink2 v2.x or skip the EIGENSTRAT test (mark "
+            "with @pytest.mark.eigenstrat)."
+        )
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            plink2,
+            "--pfile",
+            str(pfile_prefix),
+            "--export",
+            "eig",
+            "--out",
+            str(out_prefix),
+        ],
+        shell=False,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out_prefix
+
+
+def make_corrupt_eigenstrat(out_prefix: Path) -> Path:
+    """Write a deliberately-malformed EIGENSTRAT triplet for HLD test 19.
+
+    The .geno lacks the required `GENO ` header so plink2 --eigfile rejects
+    it with a clear error — that's the failure path we want to exercise
+    (subprocess fails → IOFailure with stderr surfaced → tempdir cleanup).
+    """
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    Path(str(out_prefix) + ".geno").write_bytes(b"this is not a valid GENO header\n")
+    Path(str(out_prefix) + ".snp").write_text("rs1\t1\t0.0\t100\tA\tG\nrs2\t1\t0.0\t200\tC\tT\n")
+    Path(str(out_prefix) + ".ind").write_text("S00000\tM\tpop_a\nS00001\tF\tpop_b\n")
+    return out_prefix

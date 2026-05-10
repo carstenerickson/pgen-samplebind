@@ -191,20 +191,25 @@ def merge_psams(
 
 
 def write_psam(df: pd.DataFrame, path: Path) -> None:
-    """Write canonical .psam: column order IID FID SEX POP PSEUDOHAPLOID then
+    """Write canonical .psam: column order FID IID SEX POP PSEUDOHAPLOID then
     extras in alphabetical order. Tab-delimited, header line prefixed with '#'.
+
+    Per plink2 .psam spec: when FID is present it MUST be the first column
+    (the header line then starts with `#FID`). When FID is absent, IID is
+    first (`#IID`). The merge orchestrator always emits FID (computed as
+    FID = POP via add_fid_from_pop) so the produced .psam is the FID-first
+    form.
 
     Raises:
         IOFailure: write failed.
     """
-    canonical = ["IID", "FID", "SEX", "POP", "PSEUDOHAPLOID"]
+    canonical = ["FID", "IID", "SEX", "POP", "PSEUDOHAPLOID"]
     extras = sorted(c for c in df.columns if c not in canonical)
     present_canonical = [c for c in canonical if c in df.columns]
     column_order = present_canonical + extras
 
     out = df[column_order].copy()
-    # Plink2 convention: header line starts with `#`.
-    # The first column gets `#` prefix.
+    # Plink2 convention: header line starts with `#` on the first column.
     out.columns = ["#" + c if i == 0 else c for i, c in enumerate(out.columns)]
     try:
         out.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
