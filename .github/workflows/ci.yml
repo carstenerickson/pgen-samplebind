@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (with plink2)
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-name: ci-env
+          create-args: >-
+            python=${{ matrix.python }}
+            bioconda::plink2=2.0.0a7.1
+
+      - name: Install package + dev deps
+        shell: micromamba-shell {0}
+        run: pip install -e .[dev]
+
+      - name: Lint
+        shell: micromamba-shell {0}
+        run: |
+          ruff check src/ tests/
+          ruff format --check src/ tests/
+
+      - name: Type check
+        shell: micromamba-shell {0}
+        run: mypy src/
+
+      - name: Tests
+        shell: micromamba-shell {0}
+        run: pytest -m "not slow and not external_tool" --cov=src/pgen_samplebind --cov-report=term-missing

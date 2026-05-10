@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+
+# Build artifacts
+build/
+dist/
+*.whl
+*.tar.gz
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Mypy / ruff
+.mypy_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pgen-samplebind generated outputs (but allow committed test fixtures under tests/fixtures/tiny_aadr/)
+*.pgen
+*.pvar
+*.psam
+*.bed
+*.bim
+*.fam
+*.geno
+*.snp
+*.ind
+!tests/fixtures/tiny_aadr/*.pgen
+!tests/fixtures/tiny_aadr/*.pvar
+!tests/fixtures/tiny_aadr/*.psam
+!tests/data/*.geno
+!tests/data/*.snp
+
+# Tool tempdirs
+pgen-samplebind-eig-*
+*.lock
+
+# Local notes
+NOTES.md
+TODO.md
