@@ -1,0 +1,226 @@
+"""Unit tests for alignment.build_alignment_table — pass-1 pipeline.
+
+Exercises:
+- happy path (all passthrough)
+- per-input action assignment (passthrough / swap / flip)
+- missing-in-other handling (FILL_MISSING / drop_variant / error)
+- extras detection
+- count_kept_variants
+- compute_intersection_size
+- build_action_histogram (8-key contract)
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pandas as pd
+import pytest
+
+from pgen_samplebind.alignment import (
+    build_action_histogram,
+    build_alignment_table,
+    compute_intersection_size,
+    count_kept_variants,
+)
+from pgen_samplebind.errors import InvariantViolation
+from pgen_samplebind.types import AlignmentSummary, DropReason, MergeAction, MergePolicy
+
+
+def _pvar_df(
+    chroms: list[int], positions: list[int], ids: list[str], refs: list[str], alts: list[str]
+) -> pd.DataFrame:
+    """Build a pvar DataFrame in the canonical schema produced by pvar.read_pvar."""
+    return pd.DataFrame(
+        {"chrom": chroms, "pos": positions, "id": ids, "ref": refs, "alt": alts}
+    ).astype({"chrom": "int8", "pos": "int64"})
+
+
+@pytest.fixture
+def policy() -> MergePolicy:
+    return MergePolicy()
+
+
+@pytest.fixture
+def summary() -> AlignmentSummary:
+    return AlignmentSummary()
+
+
+class TestHappyPath:
+    def test_all_passthrough_two_inputs(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df(
+            [1, 1, 2], [100, 200, 50], ["a", "b", "c"], ["A", "C", "G"], ["G", "T", "T"]
+        )
+        other = canonical.copy()
+        table = build_alignment_table(canonical, [other], policy, summary)
+
+        assert len(table) == 3
+        assert (table["action_input_1"] == MergeAction.PASSTHROUGH.value).all()
+        assert summary.n_passthrough == 3
+        assert summary.n_extras_dropped == 0
+
+
+class TestPerInputActions:
+    def test_swap_detected(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1], [100], ["v1"], ["A"], ["G"])
+        other = _pvar_df([1], [100], ["v1"], ["G"], ["A"])  # swapped
+        table = build_alignment_table(canonical, [other], policy, summary)
+        assert table["action_input_1"].iloc[0] == MergeAction.REF_ALT_SWAP.value
+        assert summary.n_ref_alt_swap == 1
+
+    def test_strand_flip_detected(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1], [100], ["v1"], ["A"], ["G"])
+        other = _pvar_df([1], [100], ["v1"], ["T"], ["C"])  # complement
+        table = build_alignment_table(canonical, [other], policy, summary)
+        assert table["action_input_1"].iloc[0] == MergeAction.STRAND_FLIP.value
+        assert summary.n_strand_flip == 1
+
+    def test_ambiguous_drops_by_default(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df([1], [100], ["v1"], ["A"], ["T"])
+        other = _pvar_df([1], [100], ["v1"], ["T"], ["A"])  # ambiguous swap
+        table = build_alignment_table(canonical, [other], policy, summary)
+        assert table["action_input_1"].iloc[0] == MergeAction.DROP.value
+        assert table["drop_reason_input_1"].iloc[0] == DropReason.AMBIGUOUS_STRAND.value
+        assert summary.n_dropped == 1
+        assert summary.n_dropped_by_reason[DropReason.AMBIGUOUS_STRAND] == 1
+
+
+class TestMissingInOther:
+    def test_fill_missing_default(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])  # missing variant b
+        table = build_alignment_table(canonical, [other], policy, summary)
+        assert table["action_input_1"].iloc[0] == MergeAction.PASSTHROUGH.value
+        assert table["action_input_1"].iloc[1] == MergeAction.FILL_MISSING.value
+        assert summary.n_fill_missing == 1
+
+    def test_drop_variant_policy(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        modified = replace(policy, on_missing="drop_variant")
+        table = build_alignment_table(canonical, [other], modified, summary)
+        assert table["action_input_1"].iloc[1] == MergeAction.DROP.value
+        assert table["drop_reason_input_1"].iloc[1] == DropReason.ON_MISSING_DROP_VARIANT.value
+
+    def test_error_policy_raises(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        modified = replace(policy, on_missing="error")
+        with pytest.raises(InvariantViolation, match="--on-missing error"):
+            build_alignment_table(canonical, [other], modified, summary)
+
+    def test_error_policy_softens_in_validate_mode(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        modified = replace(policy, on_missing="error")
+        table = build_alignment_table(
+            canonical, [other], modified, summary, soften_policy_errors=True
+        )
+        # Doesn't raise; records the trigger
+        assert summary.policy_error_triggers["on_missing_count"] == 1
+        assert table["action_input_1"].iloc[1] == MergeAction.FILL_MISSING.value
+
+
+class TestExtras:
+    def test_extras_counted(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        other = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])  # extra: b
+        build_alignment_table(canonical, [other], policy, summary)
+        assert summary.n_extras_dropped == 1
+
+    def test_extras_error_policy_raises(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        other = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        modified = replace(policy, on_extra="error")
+        with pytest.raises(InvariantViolation, match="--on-extra error"):
+            build_alignment_table(canonical, [other], modified, summary)
+
+
+class TestCountKeptVariants:
+    def test_no_drops(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        table = build_alignment_table(canonical, [canonical.copy()], policy, summary)
+        assert count_kept_variants(table) == 2
+
+    def test_with_drops(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "T"], ["G", "C"])
+        # First variant: A/T canonical with A/T → pass; T/A → drop ambiguous
+        other = _pvar_df([1, 1], [100, 200], ["a", "b"], ["T", "A"], ["A", "G"])
+        # Wait: variant a is A/T canonical, T/A other → DROP ambig
+        # variant b is T/C canonical (non-ambig), A/G other = complement of T/C → STRAND_FLIP
+        table = build_alignment_table(canonical, [other], policy, summary)
+        assert count_kept_variants(table) == 1  # one drop, one keep
+
+
+class TestComputeIntersectionSize:
+    def test_full_intersection(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        table = build_alignment_table(canonical, [canonical.copy()], policy, summary)
+        assert compute_intersection_size(table) == 2
+
+    def test_partial_intersection(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        table = build_alignment_table(canonical, [other], policy, summary)
+        # variant a is in both (intersection); variant b is FILL_MISSING (not intersection)
+        assert compute_intersection_size(table) == 1
+
+
+class TestBuildActionHistogram:
+    def test_eight_keys_always_present(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        table = build_alignment_table(canonical, [canonical.copy()], policy, summary)
+        hist = build_action_histogram(table)
+        expected_keys = {
+            "passthrough",
+            "swap",
+            "flip",
+            "fill_missing",
+            "dropped_ambiguous_strand",
+            "dropped_allele_mismatch",
+            "pre_alignment_filter_dropped",
+            "drop",
+        }
+        assert set(hist.keys()) == expected_keys
+
+    def test_passthrough_counted(self, policy: MergePolicy, summary: AlignmentSummary) -> None:
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        table = build_alignment_table(canonical, [canonical.copy()], policy, summary)
+        hist = build_action_histogram(table)
+        assert hist["passthrough"] == 2
+        assert hist["swap"] == 0
+        assert hist["flip"] == 0
+
+    def test_drop_residual_for_on_missing_drop_variant(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        """The bare 'drop' key is ON_MISSING_DROP_VARIANT residual per LLD §2.10."""
+        canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        modified = replace(policy, on_missing="drop_variant")
+        table = build_alignment_table(canonical, [other], modified, summary)
+        hist = build_action_histogram(table)
+        assert hist["drop"] == 1
+        # Other dropped_* buckets should be 0 for this case
+        assert hist["dropped_ambiguous_strand"] == 0
+        assert hist["dropped_allele_mismatch"] == 0
+
+
+class TestUniqueKeyValidation:
+    def test_duplicate_canonical_raises(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df([1, 1], [100, 100], ["a", "a2"], ["A", "C"], ["G", "T"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        with pytest.raises(InvariantViolation, match="duplicate"):
+            build_alignment_table(canonical, [other], policy, summary)

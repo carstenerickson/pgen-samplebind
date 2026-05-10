@@ -129,6 +129,34 @@ def read_pvar(path: Path) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
+def validate_unique_keys(df: pd.DataFrame, key: str) -> None:
+    """Assert no duplicate keys in canonical input. Per LLD §3.4 / HLD §Variant alignment.
+
+    Called only for input[0] before alignment. Catches the corner where input[0] was
+    itself produced by a buggy merge or malformed source file.
+
+    Raises:
+        InvariantViolation: duplicate found; message names the first duplicate key.
+    """
+    if key == "chr_pos":
+        keys = list(zip(df["chrom"].tolist(), df["pos"].tolist(), strict=True))
+        col_label = "(chrom, pos)"
+    elif key == "id":
+        keys = df["id"].tolist()
+        col_label = "id"
+    else:
+        raise InvariantViolation(f"unknown variant_key: {key!r}")
+
+    seen: set[object] = set()
+    for k in keys:
+        if k in seen:
+            raise InvariantViolation(
+                f"duplicate canonical {col_label} key: {k!r}. Input[0] must have unique "
+                f"variant keys (HLD §Variant alignment)."
+            )
+        seen.add(k)
+
+
 def check_max_alleles(pgen_path: Path) -> None:
     """Open .pgen via pgenlib.PvarReader and assert get_max_allele_ct() == 2.
 
