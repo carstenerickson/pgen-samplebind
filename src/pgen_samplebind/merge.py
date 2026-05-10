@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from . import pseudohaploid, pvar
+from . import pseudohaploid, pvar, reporting
 from .alignment import (
     build_action_histogram,
     build_alignment_table,
@@ -294,6 +294,16 @@ def merge_inputs(
     # ----- Pass 2 outputs -----
     _write_pvar_tsv(kept_table, out_pvar_path)
 
+    # ----- Reports (per LLD §3.10 step 7-8) -----
+    if ctx.report_tsv_path is not None:
+        reporting.write_report_tsv(alignment_table, len(inputs), ctx.report_tsv_path)
+
+    variant_rows = (
+        reporting.build_variant_rows_from_alignment(alignment_table, len(inputs))
+        if ctx.collect_variant_rows
+        else None
+    )
+
     per_sample_het = [
         (iid, int(het_counts[i]), int(called_counts[i]))
         for i, iid in enumerate(ctx.sample_plan.output_iids)
@@ -306,5 +316,5 @@ def merge_inputs(
         per_sample_het=per_sample_het,
         n_output_samples=n_output_samples,
         n_output_variants=n_kept,
-        variant_rows=None,  # report_tsv_path / collect_variant_rows deferred to Day 4
+        variant_rows=variant_rows,
     )

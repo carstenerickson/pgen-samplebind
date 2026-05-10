@@ -81,6 +81,61 @@ def panel_b(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return desc.path
 
 
+@pytest.fixture
+def panel_c(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Panel C: 10 samples (C00000..C00009), same 100 variants as A and B."""
+    out_dir = tmp_path_factory.mktemp("panel_c")
+    spec = SyntheticPanelSpec(
+        n_samples=10,
+        n_variants=100,
+        n_populations=2,
+        variant_seed=1,
+        sample_seed=30,
+        sample_id_prefix="C",
+    )
+    desc = synthesize_pfile(spec, out_dir / "c")
+    return desc.path
+
+
+class TestMultiInputMerge:
+    """HLD project plan Day 4: multi-input support (3+ PFILEs in one bind)."""
+
+    def test_three_panels_concatenate(
+        self, panel_a: Path, panel_b: Path, panel_c: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "merged"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(panel_a),
+                str(panel_b),
+                str(panel_c),
+                "-o",
+                str(out),
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        iids = _read_psam_iids(Path(str(out) + ".psam"))
+        assert len(iids) == 30  # 10 + 10 + 10
+        assert set(iids) == (
+            {f"A{i:05d}" for i in range(10)}
+            | {f"B{i:05d}" for i in range(10)}
+            | {f"C{i:05d}" for i in range(10)}
+        )
+
+        # Variants intact (all-passthrough across both non-canonical inputs)
+        keys = _read_pvar_keys(Path(str(out) + ".pvar"))
+        assert len(keys) == 100
+
+        # Pgen has the right shape
+        buf = _read_pgen_full(Path(str(out) + ".pgen"), n_samples=30, n_variants=100)
+        assert buf.shape == (100, 30)
+
+
 class TestMergeSmoke:
     def test_two_disjoint_panels_concatenate(
         self, panel_a: Path, panel_b: Path, tmp_path: Path
