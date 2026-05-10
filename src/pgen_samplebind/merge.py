@@ -28,6 +28,7 @@ from .alignment import (
     build_alignment_table,
     compute_intersection_size,
     evaluate_pass1_gates,
+    warn_extras_threshold,
 )
 from .errors import IOFailure
 from .types import (
@@ -220,7 +221,18 @@ def merge_inputs(
         canonical_pvar, other_pvars, ctx.policy, summary, soften_policy_errors=False
     )
 
-    # ----- Gates (a)/(b) -----
+    # ----- Stderr warning + gates (a)/(b) -----
+    # Warning fires before gate (a) so the user sees both signals (the
+    # informational "extras count is high" line AND the structured
+    # ValidationError that the gate then raises). Warning is suppressed
+    # under --on-extra drop (user has opted into "extras are intentional").
+    if ctx.policy.on_extra == "warn":
+        warn_extras_threshold(
+            summary.n_extras_dropped,
+            len(canonical_pvar),
+            ctx.policy.extras_warn_threshold,
+            quiet=False,
+        )
     evaluate_pass1_gates(alignment_table, summary, ctx.policy, is_validate_mode=False)
 
     # ----- Pass 2 setup -----

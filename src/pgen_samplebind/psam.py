@@ -145,7 +145,8 @@ def resolve_sample_identity(
                 if policy.on_collision == "error":
                     raise InvariantViolation(
                         f"--on-collision error: IID {iid!r} appears in input[{input_idx}] "
-                        f"and an earlier input"
+                        f"and an earlier input. Use --on-collision first (drop duplicates) "
+                        f"or suffix (rename duplicates) to allow merge to proceed."
                     )
                 # first: drop this duplicate (mask out)
                 keep[i] = False

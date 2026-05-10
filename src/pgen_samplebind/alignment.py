@@ -135,7 +135,11 @@ def _apply_on_missing_policy(
     if soften_policy_errors:
         triggers["on_missing_count"] += 1
         return MergeAction.FILL_MISSING, None
-    raise InvariantViolation(f"--on-missing error: variant absent in input[{input_idx}]")
+    raise InvariantViolation(
+        f"--on-missing error: variant absent in input[{input_idx}]. "
+        f"Use --on-missing fill_missing (default; -9 for absent samples) or "
+        f"drop_variant (drop the variant from output) to allow merge to proceed."
+    )
 
 
 def _apply_on_mismatch_policy(
@@ -156,7 +160,9 @@ def _apply_on_mismatch_policy(
         triggers["on_mismatch_count"] += 1
         return raw_action, raw_reason
     raise InvariantViolation(
-        f"--on-mismatch error: allele mismatch at variant in input[{input_idx}]"
+        f"--on-mismatch error: allele mismatch at variant in input[{input_idx}]. "
+        f"Use --on-mismatch drop (default; drop mismatched variants) to allow "
+        f"merge to proceed; the per-variant report (--report PATH) details which."
     )
 
 
@@ -353,12 +359,19 @@ def evaluate_pass1_gates(
     if n_canonical == 0:
         return
 
-    # Gate (a): extras above warn threshold.
-    if summary.n_extras_dropped > policy.extras_warn_threshold * n_canonical:
+    # Gate (a): extras above the --on-extra warn threshold.
+    # The threshold is named "warn threshold" because it's the --on-extra warn
+    # threshold; gate (a) only applies when the policy is `warn`. Under
+    # --on-extra drop the user has explicitly opted into "extras are normal";
+    # under --on-extra error the violation already raised in build_alignment_table.
+    if policy.on_extra == "warn" and (
+        summary.n_extras_dropped > policy.extras_warn_threshold * n_canonical
+    ):
         raise ValidationError(
             f"gate (a): extras above warn threshold "
             f"({summary.n_extras_dropped} extras > "
-            f"{policy.extras_warn_threshold:.0%} of {n_canonical} canonical variants)"
+            f"{policy.extras_warn_threshold:.0%} of {n_canonical} canonical variants). "
+            f"Input order may be reversed; use --on-extra drop if extras are intentional."
         )
 
     # Gate (b): ambiguous-strand drops above intersection threshold.
