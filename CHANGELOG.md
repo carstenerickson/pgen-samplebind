@@ -8,7 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial project skeleton.
-- Deterministic synthetic-fixture generator for testing.
-- `hash` subcommand: canonical variant-set hash for cross-format panel-identity verification.
-- `inspect` subcommand: structured summary of one input.
+
+- `merge` subcommand: bind two or more PFILE/BFILE/EIGENSTRAT inputs sharing a variant set into one output PFILE.
+  - Two-pass architecture: pass 1 alignment via pandas, pass 2 genotype streaming via pgenlib `read_range` / `append_biallelic_batch` with chromosome-aware block iteration.
+  - Allele resolution: passthrough, REF/ALT swap, strand flip, strand-flip-and-swap, drop, fill-missing.
+  - Policy flags: `--on-mismatch`, `--on-missing`, `--on-extra`, `--on-strand`, `--on-collision`, `--trust-strand`.
+  - `--target` mode for single-sample / small-cohort append: asymmetric strand-check, per-sample call-rate gate (`--target-min-call-rate`).
+  - `--on-collision suffix`: `_<input_idx>` general suffix scheme (`_target` in target mode), with idempotent numeric retry layered as `<base>_<suffix>_<n>`.
+  - `--relabel-from`: 2-col header-less POP→POP collapse, or N-col header-required per-sample override (e.g., AADR `Master ID`→`Group ID`).
+  - Pseudohaploid detection per-sample via heterozygosity tally; written to output `.psam` `PSEUDOHAPLOID` column.
+  - Population label auto-detection (POP / PHENO / PHENO1 fallback); FID mirrors POST-relabel POP.
+- `validate` subcommand: pass-1 only, no genotype reads, no output written. Same Exit-1 gates as merge; `--on-* error` policies softened to gate (d) per HLD §Exit-1 validation gates.
+- `hash` subcommand: canonical variant-set hash for cross-format panel-identity verification (PFILE/BFILE/EIGENSTRAT yield identical hashes for the same variant set).
+- `inspect` subcommand: structured summary of one input — format, samples, variants, populations, sex distribution, missingness histogram (TSV / `--json`).
+- EIGENSTRAT and BFILE input via `plink2 --eigfile`/`--bfile --make-pgen` shell-out into a per-invocation `tempfile.TemporaryDirectory`. Requires plink2 v2.0.0-a.7.1+ on PATH.
+- Reports: `--report` per-variant TSV (streamed; constant memory) and `--report-json` summary JSON (default ~few KB; `--report-json-include-rows` opt-in with >100 MB stderr warning).
+- Concurrency: `fcntl.flock`-based advisory output-prefix lock (`{prefix}.lock`); raises exit 2 on contention; NFS/SMB/CIFS detection emits stderr warning.
+- Stable exit codes: 0 success / 1 validation failure / 2 I/O failure / 3 invariant violation / 4 usage error.
+- CI matrix: ubuntu-latest + macos-latest × Python 3.11 + 3.12, plus a dedicated linux-x86_64 perf-benchmark gate (HLD test 18) that fails on regression below 80% of the recorded baseline (currently 25 M genotypes/sec end-to-end).
+- Test coverage: 248 tests including 23 HLD correctness/regression tests (1-15, 19-23) and full subprocess exit-code harness; HLD #17 (mergeit f2 parity) and #16 (Phase 6/7 panel hash invariance) gated to nightly external_tool / dogfood runs.
+
+### Documentation
+
+- README expanded with the four canonical use cases (panel extension, target append, cross-source merge, AADR cross-version cohort assembly), full CLI reference, exit-code table, validation-gate explanation, plink2 a7.x troubleshooting.
+
+[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.1.0...HEAD

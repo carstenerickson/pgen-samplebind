@@ -65,7 +65,9 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
     "target_path",
     type=click.Path(path_type=Path),
     default=None,
-    help="Mark one input as target mode (Day 8 — deferred).",
+    help="Mark one input as the target (single-sample / small-cohort mode); "
+    "activates asymmetric strand-check + call-rate gate (--target-min-call-rate). "
+    "Appended as the last input; canonical remains input[0].",
 )
 @click.option(
     "-o",
@@ -128,24 +130,30 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
     "report_path",
     type=click.Path(path_type=Path),
     default=None,
-    help="Per-variant action TSV (Day 4).",
+    help="Per-variant action TSV (streamed; constant memory).",
 )
 @click.option(
     "--report-json",
     "report_json_path",
     type=click.Path(path_type=Path),
     default=None,
-    help="Run-level summary JSON (Day 4).",
+    help="Run-level summary JSON (~few KB; rows excluded by default).",
 )
 @click.option(
     "--report-json-include-rows",
     is_flag=True,
     default=False,
-    help="Include per-variant rows in --report-json output (Day 4).",
+    help="Include per-variant rows in --report-json output (buffered; warns at "
+    ">100 MB predicted size; prefer --report TSV for streaming at scale).",
 )
-@click.option("--quiet", is_flag=True, default=False)
-@click.option("--threads", type=int, default=1)
-@click.option("--block-size", type=int, default=2048)
+@click.option("--quiet", is_flag=True, default=False, help="Suppress progress to stdout.")
+@click.option("--threads", type=int, default=1, help="Parallel input readers (default: 1).")
+@click.option(
+    "--block-size",
+    type=int,
+    default=2048,
+    help="Variants per pgenlib read block (default: 2048).",
+)
 def merge_command(
     inputs: tuple[Path, ...],
     target_path: Path | None,
