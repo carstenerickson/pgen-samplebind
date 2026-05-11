@@ -135,12 +135,13 @@ jobs:
 
       # Cache R packages so admixtools and its deps install once per CI
       # lockfile, not once per run. Cold build is ~6-8 min; warm is ~5 sec.
+      # Cache key includes the admixtools ref so a ref bump auto-invalidates.
       - name: Cache R packages
         id: cache-r
         uses: actions/cache@v4
         with:
           path: ${{ env.R_LIBS_USER }}
-          key: r-admixtools-${{ runner.os }}-R4.4-v1
+          key: r-admixtools-${{ runner.os }}-R4.4-stable-build-runnable-v1
 
       - name: Install system deps for R packages
         if: steps.cache-r.outputs.cache-hit != 'true'
@@ -149,24 +150,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxml2-dev libssl-dev libcurl4-openssl-dev libgsl-dev libfontconfig1-dev
 
-      - name: Configure R Makevars for C++14
-        if: steps.cache-r.outputs.cache-hit != 'true'
-        run: |
-          # admixtools depends on RcppArmadillo, which requires C++14.
-          # R 4.4 still defaults to C++11 for source-builds; without this
-          # override the build fails at fn_accu.hpp with "auto type specifier
-          # without trailing return type" (a C++14-only feature).
-          mkdir -p ~/.R
-          cat >> ~/.R/Makevars <<'MK'
-          CXX14 = g++
-          CXX14STD = -std=c++14
-          CXX14FLAGS = -O2 -Wall
-          CXX14PICFLAGS = -fpic
-          CXX = g++ -std=c++14
-          CXXFLAGS = -O2 -Wall
-          MK
-
-      - name: Install admixtools R package
+      # We install from a maintained fork (carstenerickson/admixtools) on the
+      # `stable/build-runnable` branch — a curated merge of the upstream PRs
+      # that are required for the package to (a) compile against current
+      # RcppArmadillo 15+ and (b) run against current readr / igraph / dplyr.
+      # The package's own src/Makevars carries the C++17 bump, so no global
+      # ~/.R/Makevars override is needed here.
+      - name: Install admixtools R package (carstenerickson fork, stable/build-runnable)
         if: steps.cache-r.outputs.cache-hit != 'true'
         env:
           # remotes::install_github falls back to anonymous API calls (60/hr)
@@ -175,7 +165,7 @@ jobs:
           GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
           Rscript -e 'install.packages("remotes", repos="https://packagemanager.posit.co/cran/__linux__/jammy/latest")'
-          Rscript -e 'remotes::install_github("uqrmaie1/admixtools", upgrade="never", build_vignettes=FALSE)'
+          Rscript -e 'remotes::install_github("carstenerickson/admixtools@stable/build-runnable", upgrade="never", build_vignettes=FALSE)'
 
       - name: Verify admixtools loads
         run: Rscript -e 'suppressPackageStartupMessages(library(admixtools)); cat("admixtools", as.character(packageVersion("admixtools")), "\n")'
