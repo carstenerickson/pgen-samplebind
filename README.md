@@ -227,9 +227,9 @@ rm /data/merged.lock         # only after confirming no live process holds it
 
 ## Status
 
-v0.1.0 in development. Implementation complete through Day 11 of the 13-day project plan; PyPI publish + self-dogfood in remaining days.
+v0.1.0 — initial release. End-to-end byte-equal qpAdm parity proven against the established `mergeit + plink2 + awk` pipeline on the Track E Phase 7 panel build (Reich-Lab-style ancient-DNA workflow with EIGENSTRAT panel + brit_subset + single-sample target append; md5-identical proximal qpAdm shootout output).
 
-Design docs (HLD + LLD): see `cs-wiki/projects/pgen-samplebind.md` and `cs-wiki/projects/pgen-samplebind-lld.md`.
+See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations.
 
 ## Contributing
 
