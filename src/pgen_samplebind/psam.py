@@ -115,19 +115,23 @@ def resolve_sample_identity(
     """Compute the SampleIdentityPlan from input psams + --on-collision policy.
     Per HLD §IID collision handling (v3.5) and LLD §3.5.
 
-    Day 3 supports --on-collision {error, first}. The `suffix` scheme
-    (general `_<input_idx>`, target `_target`, idempotent retry) is
-    deferred to Day 8 alongside --target mode work.
+    Supports all three policies:
+      - error: raises InvariantViolation on first collision (exit 3).
+      - first: drops duplicates in input order; first occurrence wins.
+      - suffix: renames duplicates per HLD v3.5:
+          * General mode: input[N>0]'s colliding sample gets `_<input_idx>`.
+          * Target mode (input_idx == target_idx): suffix is `_target`.
+          * Idempotent retry: if the renamed slot is also taken, fall through
+            to `<base>_<suffix>_1`, `<base>_<suffix>_2`, ... until free.
+        Input[0]'s IIDs are never suffixed (canonical, preserved).
 
     Raises:
-        InvariantViolation: collision under --on-collision error.
-        NotImplementedError: --on-collision suffix (until Day 8).
+        InvariantViolation: collision under --on-collision error;
+            input[0] contains its own internal duplicate (canonical must
+            have unique IIDs even under --on-collision suffix).
     """
     if policy.on_collision == "suffix":
-        raise NotImplementedError(
-            "--on-collision suffix is deferred to project Day 8. "
-            "For Day 3 use --on-collision {error, first}."
-        )
+        return _resolve_with_suffix(psams, target_idx)
 
     output_iids: list[str] = []
     keep_masks: list[np.ndarray[Any, Any]] = []
@@ -154,6 +158,71 @@ def resolve_sample_identity(
                 seen.add(iid)
                 out_idx[i] = len(output_iids)
                 output_iids.append(iid)
+
+        keep_masks.append(keep)
+        output_indices_per_input.append(out_idx)
+
+    return SampleIdentityPlan(
+        output_iids=tuple(output_iids),
+        per_input_keep_mask=tuple(keep_masks),
+        per_input_output_indices=tuple(output_indices_per_input),
+    )
+
+
+def _resolve_with_suffix(psams: list[pd.DataFrame], target_idx: int | None) -> SampleIdentityPlan:
+    """--on-collision suffix scheme per HLD §IID collision handling (v3.5).
+
+    Algorithm: sequential pass over inputs. Input[0] is canonical and never
+    suffixed (raises if input[0] has internal duplicates). For input[N>0],
+    each colliding IID gets `_<input_idx>` (general) or `_target` (when
+    input_idx == target_idx) appended; if the suffixed name is also taken,
+    fall through to `<base>_<suffix>_1`, `<base>_<suffix>_2`, ... until a
+    free slot is found.
+    """
+    output_iids: list[str] = []
+    keep_masks: list[np.ndarray[Any, Any]] = []
+    output_indices_per_input: list[np.ndarray[Any, Any]] = []
+    seen: set[str] = set()
+
+    for input_idx, psam in enumerate(psams):
+        iids = psam["IID"].tolist()
+        n = len(iids)
+        keep = np.ones(n, dtype=bool)
+        out_idx = np.full(n, -1, dtype=np.int64)
+
+        for i, iid in enumerate(iids):
+            if input_idx == 0:
+                # Canonical input — never suffixed. Internal duplicates here
+                # are a bug in the input itself, not something --on-collision
+                # suffix can resolve (which non-canonical sample would the
+                # canonical's duplicate "rename to"?).
+                if iid in seen:
+                    raise InvariantViolation(
+                        f"input[0] contains duplicate IID {iid!r}; canonical input "
+                        f"must have unique IIDs. --on-collision suffix only renames "
+                        f"non-canonical duplicates."
+                    )
+                seen.add(iid)
+                out_idx[i] = len(output_iids)
+                output_iids.append(iid)
+                continue
+
+            if iid not in seen:
+                seen.add(iid)
+                out_idx[i] = len(output_iids)
+                output_iids.append(iid)
+                continue
+
+            # Collision — apply suffix scheme with idempotent retry.
+            base_suffix = "_target" if input_idx == target_idx else f"_{input_idx}"
+            candidate = iid + base_suffix
+            retry = 1
+            while candidate in seen:
+                candidate = iid + base_suffix + f"_{retry}"
+                retry += 1
+            seen.add(candidate)
+            out_idx[i] = len(output_iids)
+            output_iids.append(candidate)
 
         keep_masks.append(keep)
         output_indices_per_input.append(out_idx)

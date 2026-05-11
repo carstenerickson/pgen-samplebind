@@ -9,7 +9,9 @@ finalizes `.psam` from the returned MergeCounters.
 Day 3 scope: end-to-end PFILE merge for the simple cases. Deferred:
 - ctx.report_tsv_path streaming → Day 4
 - ctx.collect_variant_rows → Day 4
-- gate (c) target call rate → Day 8 (--target mode work)
+- gate (c) target call rate is checked post-pass-2 (HLD §Exit-1 validation
+  gates (c)). Detected by descriptor.is_target; uses canonical variant
+  count as denominator and the per_sample_het called_count as numerator.
 - Output cleanup wrapper → Day 6 (orchestrator-side)
 """
 
@@ -30,14 +32,57 @@ from .alignment import (
     evaluate_pass1_gates,
     warn_extras_threshold,
 )
-from .errors import IOFailure
+from .errors import IOFailure, ValidationError
 from .types import (
     AlignmentSummary,
     InputDescriptor,
     MergeAction,
     MergeContext,
     MergeCounters,
+    SampleIdentityPlan,
 )
+
+
+def _check_target_call_rate(
+    target_idx: int,
+    sample_plan: SampleIdentityPlan,
+    per_sample_het: list[tuple[str, int, int]],
+    n_canonical_variants: int,
+    min_call_rate: float,
+) -> None:
+    """Gate (c) per HLD §Exit-1 validation gates (c) and §Target mode.
+
+    For each kept target sample, computes call_rate = called_count /
+    n_canonical_variants and raises ValidationError if any sample falls
+    below min_call_rate. The denominator is pinned to canonical (panel)
+    variant count to prevent a tiny-but-fully-called target from spuriously
+    passing the gate (HLD §Target mode).
+    """
+    if n_canonical_variants <= 0:
+        return  # nothing to check
+    target_keep_mask = sample_plan.per_input_keep_mask[target_idx]
+    target_output_indices = sample_plan.per_input_output_indices[target_idx]
+
+    failed: list[tuple[str, float]] = []
+    for i, kept in enumerate(target_keep_mask.tolist()):
+        if not kept:
+            continue
+        out_pos = int(target_output_indices[i])
+        iid, _het, called = per_sample_het[out_pos]
+        rate = called / n_canonical_variants
+        if rate < min_call_rate:
+            failed.append((iid, rate))
+
+    if failed:
+        head = ", ".join(f"{iid}={rate:.1%}" for iid, rate in failed[:5])
+        more = "" if len(failed) <= 5 else f" (and {len(failed) - 5} more)"
+        raise ValidationError(
+            f"gate (c): target call rate below {min_call_rate:.0%} threshold "
+            f"for {len(failed)} sample(s): {head}{more}. The target's missingness "
+            f"is too high for reliable downstream analysis (e.g., qpAdm). "
+            f"Override with --target-min-call-rate FLOAT to lower the threshold "
+            f"if you accept the risk."
+        )
 
 
 def _kept_variants_table(alignment_table: pd.DataFrame) -> pd.DataFrame:
@@ -320,6 +365,22 @@ def merge_inputs(
         (iid, int(het_counts[i]), int(called_counts[i]))
         for i, iid in enumerate(ctx.sample_plan.output_iids)
     ]
+
+    # ----- Gate (c): target call rate -----
+    # Per HLD §Exit-1 validation gates (c): the target's call rate (non-missing
+    # genotypes / canonical variant count) must be >= policy.target_min_call_rate.
+    # Genotype-dependent → checked here post-pass-2, not in evaluate_pass1_gates.
+    # Per LLD §3.10: if it fires, the .pgen/.pvar exist on disk; the orchestrator's
+    # try/except (LLD §4.1 fix #6) unlinks the partial triplet.
+    target_idx = next((i for i, d in enumerate(inputs) if d.is_target), None)
+    if target_idx is not None:
+        _check_target_call_rate(
+            target_idx=target_idx,
+            sample_plan=ctx.sample_plan,
+            per_sample_het=per_sample_het,
+            n_canonical_variants=len(canonical_pvar),
+            min_call_rate=ctx.policy.target_min_call_rate,
+        )
 
     return MergeCounters(
         action_histogram=build_action_histogram(alignment_table),

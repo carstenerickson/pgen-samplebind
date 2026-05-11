@@ -56,13 +56,23 @@ def run_merge(
 ) -> None:
     """Merge subcommand orchestrator. Per LLD §4.1.
 
-    Day 3-4: target_path is rejected (--target mode is Day 8).
+    Target mode (--target): the target is appended as the LAST input. The
+    canonical (input[0]) remains the first positional. The target's descriptor
+    is marked is_target=True so merge_inputs's gate (c) call-rate check fires
+    on it, and resolve_sample_identity uses target_idx for the `_target`
+    suffix scheme.
     """
+    # Target mode: append target as the last input; canonical = first positional.
     if target_path is not None:
-        raise NotImplementedError(
-            "--target mode is deferred to project Day 8. For Day 3-4 use positional "
-            "INPUT arguments only."
-        )
+        if not input_paths:
+            from ..errors import UsageError
+
+            raise UsageError("--target requires at least one positional INPUT (the panel).")
+        all_input_paths: tuple[Path, ...] = (*input_paths, target_path)
+        target_idx: int | None = len(input_paths)  # last index after append
+    else:
+        all_input_paths = input_paths
+        target_idx = None
 
     started = time.perf_counter()
 
@@ -72,12 +82,17 @@ def run_merge(
     output_paths = {"pgen": out_pgen_path, "pvar": out_pvar_path, "psam": out_psam_path}
 
     with ExitStack() as stack:
-        # Step 1: format detection per input via context manager
+        # Step 1: format detection per input via context manager. Target
+        # descriptor is marked is_target=True so gate (c) finds it.
         descriptors = [
             stack.enter_context(
-                prepared_input(p, is_target=False, include_chrom=policy.include_chrom)
+                prepared_input(
+                    p,
+                    is_target=(i == target_idx),
+                    include_chrom=policy.include_chrom,
+                )
             )
-            for p in input_paths
+            for i, p in enumerate(all_input_paths)
         ]
 
         # Step 5: per-input multi-allelic startup check
@@ -101,8 +116,9 @@ def run_merge(
             for d, df in zip(descriptors, psam_dfs, strict=True)
         ]
 
-        # Step 10: resolve sample identity (collision policy applied)
-        sample_plan = psam.resolve_sample_identity(psam_dfs, policy, target_idx=None)
+        # Step 10: resolve sample identity (collision policy applied; target_idx
+        # drives the `_target` suffix scheme under --on-collision suffix).
+        sample_plan = psam.resolve_sample_identity(psam_dfs, policy, target_idx=target_idx)
 
         # Step 11: build MergeContext
         ctx = MergeContext(

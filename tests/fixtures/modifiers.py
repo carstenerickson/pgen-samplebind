@@ -228,6 +228,58 @@ def pfile_to_eigenstrat(pfile_prefix: Path, out_prefix: Path) -> Path:
     return out_prefix
 
 
+def make_panel_with_iids(
+    out_prefix: Path,
+    iids: list[str],
+    n_variants: int = 10,
+    seed: int = 42,
+    pop: str = "pop_a",
+) -> Path:
+    """Build a tiny PFILE with explicitly-specified IIDs.
+
+    Used by HLD test 23 to construct collision scenarios: e.g., a panel
+    that already contains both `Sample1` and `Sample1_1` (the iterative-
+    build case), or two panels that share specific IIDs by construction.
+    """
+    import pgenlib
+
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    n_samples = len(iids)
+    rng = np.random.default_rng(seed)
+    geno = rng.integers(0, 3, size=(n_variants, n_samples), dtype=np.int8)
+
+    out_pgen = Path(str(out_prefix) + ".pgen")
+    out_pvar = Path(str(out_prefix) + ".pvar")
+    out_psam = Path(str(out_prefix) + ".psam")
+
+    writer = pgenlib.PgenWriter(str(out_pgen).encode(), n_samples, n_variants)
+    try:
+        writer.append_biallelic_batch(geno)
+    finally:
+        writer.close()
+
+    pvar_df = pd.DataFrame(
+        {
+            "#CHROM": [1] * n_variants,
+            "POS": list(range(1000, 1000 + n_variants)),
+            "ID": [f"v{i}" for i in range(n_variants)],
+            "REF": ["A"] * n_variants,
+            "ALT": ["G"] * n_variants,
+        }
+    )
+    pvar_df.to_csv(out_pvar, sep="\t", index=False, lineterminator="\n")
+
+    psam_df = pd.DataFrame(
+        {
+            "#IID": iids,
+            "SEX": [1] * n_samples,
+            "POP": [pop] * n_samples,
+        }
+    )
+    psam_df.to_csv(out_psam, sep="\t", index=False, lineterminator="\n")
+    return out_prefix
+
+
 def make_corrupt_eigenstrat(out_prefix: Path) -> Path:
     """Write a deliberately-malformed EIGENSTRAT triplet for HLD test 19.
 
