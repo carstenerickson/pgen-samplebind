@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Bind PFILE/BFILE/EIGENSTRAT genotype datasets sharing a variant set; the missing plink2 --pmerge case for ancient-DNA / population-genetics workflows."
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.15"
 authors = [
     { name = "Carsten Erickson", email = "carstene@mailbox.org" },
 ]
@@ -24,6 +24,8 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Typing :: Typed",
 ]

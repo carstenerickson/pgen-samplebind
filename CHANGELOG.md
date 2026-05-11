@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`requires-python = ">=3.11,<3.15"`** — bumped the Python cap from `<3.13` to admit Python 3.13 and 3.14. The previous cap was tied to numpy 1.26's lack of 3.13 support; with the numpy upper bound now at `<3` (admits 2.x), 3.13 and 3.14 work cleanly. Verified with the full 278-test suite on both Python 3.13 + numpy 2.4.4 and Python 3.14 + numpy 2.4.4. CI matrix now runs `[3.11, 3.12, 3.13, 3.14] × [ubuntu, macos]` = 8 cells (up from 4); the release-pipeline smoke-test matrix matches.
 - **Bumped `numpy` and `pandas` upper bounds** to allow current major versions:
   - `numpy>=1.26,<2` → `numpy>=1.26,<3` (admits numpy 2.x)
   - `pandas>=2.2,<3` → `pandas>=2.2,<4` (admits pandas 3.x)
