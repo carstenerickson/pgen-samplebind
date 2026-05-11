@@ -94,3 +94,79 @@ jobs:
       - name: Perf benchmark
         run: pytest tests/integration/test_perf_benchmark.py -m slow --no-cov -v
 
+  dogfood:
+    # Named status check for the AADR-derivative regression test suite.
+    # Tier 1 (default) + Tier 2 (`dogfood_plink2`) also run inside the main
+    # `test` matrix as a side-effect of the marker selector; this dedicated
+    # job adds Tier 3 (`dogfood_full`) which needs R + admixtools, AND gives
+    # the test set its own visible status check on PRs. See
+    # tests/dogfood/README.md for tier descriptions and fair-use rationale.
+    name: Dogfood / AADR regression (all tiers)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # plink2 v2.0.0-a.7.1 — same script as the main test job. The
+      # dogfood_plink2 + dogfood_full tiers both need it on PATH.
+      - name: Install plink2 v2.0.0-a.7.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/chrchang/plink-ng/releases/download/v2.0.0-a.7.1/plink2_linux_x86_64.zip"
+          mkdir -p "$RUNNER_TEMP/plink2"
+          curl -fsSL -o "$RUNNER_TEMP/plink2.zip" "$URL"
+          unzip -q "$RUNNER_TEMP/plink2.zip" -d "$RUNNER_TEMP/plink2"
+          chmod +x "$RUNNER_TEMP/plink2/plink2"
+          echo "$RUNNER_TEMP/plink2" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/plink2/plink2" --version
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.4"
+          use-public-rspm: true
+
+      # Cache R packages so admixtools and its deps install once per CI
+      # lockfile, not once per run. Cold build is ~6-8 min; warm is ~5 sec.
+      - name: Cache R packages
+        id: cache-r
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: r-admixtools-${{ runner.os }}-R4.4-v1
+
+      - name: Install system deps for R packages
+        if: steps.cache-r.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxml2-dev libssl-dev libcurl4-openssl-dev libgsl-dev libfontconfig1-dev
+
+      - name: Install admixtools R package
+        if: steps.cache-r.outputs.cache-hit != 'true'
+        run: |
+          Rscript -e 'install.packages("remotes", repos="https://packagemanager.posit.co/cran/__linux__/jammy/latest")'
+          Rscript -e 'remotes::install_github("uqrmaie1/admixtools", upgrade="never", build_vignettes=FALSE)'
+
+      - name: Verify admixtools loads
+        run: Rscript -e 'suppressPackageStartupMessages(library(admixtools)); cat("admixtools", as.character(packageVersion("admixtools")), "\n")'
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      # Run all dogfood tiers. The default + plink2 tiers were already
+      # covered in the main `test` job; rerunning them here means this job
+      # is self-contained and can be triggered standalone for diagnostic
+      # purposes.
+      - name: Dogfood tests (all tiers)
+        run: pytest tests/dogfood/ -v --no-cov
+
