@@ -85,8 +85,18 @@ class TestHld19TempdirCleanupOnFailure:
         result = runner.invoke(cli, ["hash", str(bad)])
         assert result.exit_code != 0
         assert isinstance(result.exception, IOFailure)
-        # Stderr from plink2 should be surfaced verbatim in the error message
-        assert "GENO" in str(result.exception) or "stderr" in str(result.exception).lower()
+        # Either failure path is acceptable — the corrupt fixture (no GENO header
+        # and not parseable as ASCII) gets caught by the native ASCII parser's
+        # size-mismatch check; if it had a partial GENO header it would be caught
+        # by plink2's --eigfile path with stderr surfaced. Both result in IOFailure
+        # with an informative message.
+        msg = str(result.exception)
+        assert (
+            "GENO" in msg
+            or "stderr" in msg.lower()
+            or "EIGENSTRAT" in msg
+            or "size mismatch" in msg.lower()
+        ), f"unexpected error message: {msg!r}"
 
     def test_no_tempdir_leak_after_failure(self, tmp_path: Path) -> None:
         """After a plink2-failure run, no `pgen-samplebind-*` dir survives in $TMPDIR.
@@ -152,6 +162,7 @@ class TestHld07EigenstratRoundTrip:
                 str(merged),
                 "--on-collision",
                 "first",
+                "--trust-strand",  # self-merge: ambiguous-matching is safe
                 "--quiet",
             ],
         )

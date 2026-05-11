@@ -82,8 +82,12 @@ def read_pvar(path: Path) -> pd.DataFrame:
     """Parse a .pvar via pandas. Apply the biallelic-SNP filter vectorized.
 
     Returns a DataFrame with columns: chrom (int8), pos (int64), id (object),
-    ref (object, len 1, ACGT), alt (object, len 1, ACGT). Failed-filter rows
-    are dropped. Pre-filter count via count_raw_variants() if needed.
+    ref (object, len 1, ACGT), alt (object, len 1, ACGT), cm (float64).
+    Failed-filter rows are dropped. The `cm` column carries genetic-position
+    in centiMorgans (preserved from input .pvar's CM column when present;
+    0.0 otherwise). cM is required end-to-end so that downstream tools using
+    Morgan-spaced jackknife blocks (e.g., AT2 `extract_f2 blgsize=0.05`)
+    partition variants the same way as if they'd consumed the original input.
 
     Raises:
         IOFailure: file unreadable or unparseable.
@@ -124,8 +128,22 @@ def read_pvar(path: Path) -> pd.DataFrame:
     df["REF"] = df["REF"].str.upper()
     df["ALT"] = df["ALT"].str.upper()
 
+    # CM column: optional in plink2 .pvar (emitted by --eigfile / --bfile
+    # converters when source had cM, omitted otherwise). Default to 0.0.
+    if "CM" in df.columns:
+        df["CM"] = pd.to_numeric(df["CM"], errors="coerce").fillna(0.0).astype("float64")
+    else:
+        df["CM"] = 0.0
+
     return df.rename(
-        columns={"CHROM": "chrom", "POS": "pos", "ID": "id", "REF": "ref", "ALT": "alt"}
+        columns={
+            "CHROM": "chrom",
+            "POS": "pos",
+            "ID": "id",
+            "REF": "ref",
+            "ALT": "alt",
+            "CM": "cm",
+        }
     ).reset_index(drop=True)
 
 

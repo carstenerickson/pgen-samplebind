@@ -194,6 +194,16 @@ Symptom of an older plink2 reading our `.psam` output. We emit FID-first column 
 
 Default threshold is 0.40 (40% of canonical variants called for the target sample). For very-low-coverage targets this may be too strict. Pass `--target-min-call-rate 0.20` (or lower) if appropriate; with `0.0` the gate is fully disabled.
 
+### "ASCII per-line EIGENSTRAT" inputs
+
+Both flavors of EIGENSTRAT input are supported: PACKEDANCESTRYMAP (binary, `GENO `/`TGENO ` header — converted via plink2 `--eigfile`) and the older ASCII per-line variant (one digit per sample-variant cell — parsed natively, no plink2 dependency for the ASCII path). Format is auto-detected from the `.geno` header bytes.
+
+### Cross-source merges drop more variants than expected
+
+By default A/T and C/G ambiguous SNPs are dropped wherever strand cannot be verified — including the case where both inputs have the same allele pair (e.g., both have A/T at the same position). The strand cannot be proven the same because complementing A/T gives T/A which is the same pair. This matches mergeit's `strandcheck: YES` convention and is the safe default for cross-source merges (different cohorts, different processing pipelines).
+
+For **single-source merges** where REF/ALT calls are guaranteed consistent across inputs (same AADR release, same conversion pipeline), pass `--trust-strand` to passthrough matching ambiguous variants. The 1240k panel has ~1.3% A/T+C/G matching ambiguous SNPs so this typically recovers 10-20K additional variants on a full 1.15M-variant panel.
+
 ### "ambiguous-strand drops exceed 10% of intersection"
 
 Gate (b) fired. Three common causes:

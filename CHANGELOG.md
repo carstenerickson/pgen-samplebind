@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`--trust-strand` semantic extended** to cover the matching-allele ambiguous case. By default A/T and C/G SNPs are now dropped whenever strand cannot be verified — including when canonical and other inputs both have the same ambiguous pair (previously: passthrough). Matches mergeit's `strandcheck: YES` convention and is the safe default for cross-source merges. Pass `--trust-strand` for single-source pipelines where REF/ALT calls are guaranteed consistent.
+- **cM column preserved end-to-end** through the merge pipeline. Output `.pvar` now carries the genetic-position values from input `.pvar`/`.snp` files (default 0.0 if absent). Previously cM was dropped, which propagated to `.bim` after `plink2 --make-bed` and broke Morgan-spaced jackknife block partitioning in downstream tools (e.g., AT2 `extract_f2 blgsize=0.05`).
+
 ### Added
+
+- **Native ASCII per-line EIGENSTRAT input.** plink2 `--eigfile` only reads PACKEDANCESTRYMAP-format EIGENSTRAT (binary `GENO ` header). Older ASCII per-line files (one digit per sample-variant cell, no header) are now parsed natively — no convertf pre-conversion required. Format is auto-detected from the `.geno` header bytes.
 
 - `merge` subcommand: bind two or more PFILE/BFILE/EIGENSTRAT inputs sharing a variant set into one output PFILE.
   - Two-pass architecture: pass 1 alignment via pandas, pass 2 genotype streaming via pgenlib `read_range` / `append_biallelic_batch` with chromosome-aware block iteration.

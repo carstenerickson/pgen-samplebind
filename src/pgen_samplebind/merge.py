@@ -131,16 +131,24 @@ def _swap_genotypes_in_place(buf_row: np.ndarray[Any, Any]) -> None:
 
 
 def _write_pvar_tsv(kept_table: pd.DataFrame, out_pvar_path: Path) -> None:
-    """Write the kept-variants .pvar (TSV, plink2 format with #CHROM header)."""
-    out = kept_table[["chrom", "pos", "variant_id", "ref", "alt"]].rename(
-        columns={
-            "chrom": "#CHROM",
-            "pos": "POS",
-            "variant_id": "ID",
-            "ref": "REF",
-            "alt": "ALT",
-        }
-    )
+    """Write the kept-variants .pvar (TSV, plink2 format with #CHROM header).
+
+    Includes the `CM` column so plink2's downstream `--make-bed` / AT2's
+    `extract_f2 blgsize` etc. see the original genetic-position values rather
+    than zeros (which would collapse Morgan-spaced jackknife blocks).
+    """
+    cols = ["chrom", "pos", "variant_id", "ref", "alt"]
+    rename = {
+        "chrom": "#CHROM",
+        "pos": "POS",
+        "variant_id": "ID",
+        "ref": "REF",
+        "alt": "ALT",
+    }
+    if "cm" in kept_table.columns:
+        cols.append("cm")
+        rename["cm"] = "CM"
+    out = kept_table[cols].rename(columns=rename)
     try:
         out.to_csv(out_pvar_path, sep="\t", index=False, lineterminator="\n")
     except OSError as e:

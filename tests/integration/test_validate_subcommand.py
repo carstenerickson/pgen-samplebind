@@ -122,6 +122,7 @@ class TestValidateReports:
                 str(panel_b),
                 "--report-json",
                 str(report_json),
+                "--trust-strand",  # synth panels share variant_seed; same-source
                 "--quiet",
             ],
         )

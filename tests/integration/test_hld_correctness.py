@@ -95,6 +95,7 @@ class TestHld01RoundTripIdentity:
                 str(out),
                 "--on-collision",
                 "first",
+                "--trust-strand",  # self-merge: ambiguous-matching is safe
                 "--quiet",
             ],
         )
@@ -450,6 +451,7 @@ class TestHld06MissingVariantDefault:
                 str(b),
                 "-o",
                 str(out),
+                "--trust-strand",  # synth panels share variant_seed; same-source
                 "--report-json",
                 str(tmp_path / "r.json"),
                 "--quiet",
@@ -512,6 +514,7 @@ class TestHld06MissingVariantDefault:
                 str(out),
                 "--on-missing",
                 "drop_variant",
+                "--trust-strand",  # synth panels share variant_seed; same-source
                 "--report-json",
                 str(tmp_path / "r.json"),
                 "--quiet",

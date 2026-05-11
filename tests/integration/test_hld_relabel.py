@@ -344,7 +344,18 @@ class TestHld15NoStringLabeledChroms:
         out = tmp_path / "merged"
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["merge", str(eig), str(eig), "-o", str(out), "--on-collision", "first", "--quiet"]
+            cli,
+            [
+                "merge",
+                str(eig),
+                str(eig),
+                "-o",
+                str(out),
+                "--on-collision",
+                "first",
+                "--trust-strand",  # self-merge: ambiguous-matching is safe
+                "--quiet",
+            ],
         )
         assert result.exit_code == 0, result.output
 

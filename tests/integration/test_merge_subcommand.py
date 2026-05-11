@@ -114,6 +114,7 @@ class TestMultiInputMerge:
                 str(panel_c),
                 "-o",
                 str(out),
+                "--trust-strand",  # synth panels share variant_seed; same-source
                 "--quiet",
             ],
         )
@@ -144,7 +145,16 @@ class TestMergeSmoke:
         out = tmp_path / "merged"
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["merge", str(panel_a), str(panel_b), "-o", str(out), "--quiet"]
+            cli,
+            [
+                "merge",
+                str(panel_a),
+                str(panel_b),
+                "-o",
+                str(out),
+                "--trust-strand",  # synth panels share variant_seed; same-source
+                "--quiet",
+            ],
         )
         assert result.exit_code == 0, result.output
 

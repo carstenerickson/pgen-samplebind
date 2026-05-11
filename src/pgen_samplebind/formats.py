@@ -1,8 +1,16 @@
 """Format detection, EIGENSTRAT/BFILE pre-conversion, tempdir lifecycle.
 
-Per LLD §3.3. Day 6 lights up BFILE and EIGENSTRAT input via a plink2
-shell-out into a per-invocation `tempfile.TemporaryDirectory`. Cleanup
-on success OR failure happens via the TemporaryDirectory context exit.
+Per LLD §3.3.
+
+EIGENSTRAT inputs in two flavors:
+- PACKEDANCESTRYMAP (binary, `GENO `/`TGENO ` header): converted to PFILE via
+  plink2 `--eigfile --make-pgen` shell-out.
+- ASCII per-line (one digit per sample-variant cell, no header): parsed
+  natively in `_convert_ascii_eigenstrat` since plink2 doesn't read it.
+
+Both routes write a PFILE triplet into a per-invocation
+`tempfile.TemporaryDirectory`; cleanup on success OR failure happens via
+the TemporaryDirectory context exit.
 """
 
 from __future__ import annotations
@@ -14,7 +22,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 from .errors import IOFailure, UsageError
+from .pvar import normalize_chrom
 from .types import InputDescriptor, InputFormat
 
 # Tempdir prefix used for both EIGENSTRAT and BFILE pre-conversion.
@@ -193,6 +205,173 @@ def _run_plink2_convert(
         )
 
 
+def _is_packedancestrymap(geno_path: Path) -> bool:
+    """Sniff first 6 bytes of an EIGENSTRAT .geno: PACKEDANCESTRYMAP files
+    start with `GENO ` (binary header) or `TGENO ` (transposed binary).
+    Anything else is treated as ASCII per-line.
+    """
+    try:
+        with open(geno_path, "rb") as f:
+            head = f.read(6)
+    except OSError:
+        return False
+    return head.startswith(b"GENO ") or head.startswith(b"TGENO ")
+
+
+def _convert_ascii_eigenstrat(
+    in_prefix: Path,
+    out_prefix: Path,
+    include_chrom: tuple[int, ...],
+) -> None:
+    """Native parser for ASCII per-line EIGENSTRAT → PFILE at out_prefix.
+
+    Format spec (no plink2 dependency):
+    - `.ind`: one line per sample. Whitespace-delimited 3 cols: IID sex pop.
+    - `.snp`: one line per variant. Whitespace-delimited 6 cols:
+        rsID chrom cM pos REF ALT.
+    - `.geno`: one line per variant. Each line = N chars (one per sample),
+        values 0/1/2 = count of REF allele, 9 = missing. Trailing newline.
+
+    Conversion to plink/pgenlib convention:
+    - genotype = 2 - eig_value for {0,1,2}; missing → -9.
+    - Apply the autosome filter (`include_chrom`) at parse time.
+    - Preserve the cM column in the output `.pvar`.
+
+    Memory: reads the full `.geno` as a (n_variants x (n_samples+1)) uint8
+    matrix via `np.fromfile`. For 1240k-scale (1.2M variants x ~1000 samples
+    ≈ 1.3 GB) this fits comfortably in 8GB+ environments. Streamed write via
+    PgenWriter keeps RSS dominated by the parsed matrix, not by buffered
+    output.
+
+    Raises:
+        IOFailure: file unreadable; .geno size doesn't match
+            (n_variants_raw x (n_samples + 1)) bytes; pgenlib write failure.
+    """
+    import pgenlib
+
+    geno_path = Path(str(in_prefix) + ".geno")
+    snp_path = Path(str(in_prefix) + ".snp")
+    ind_path = Path(str(in_prefix) + ".ind")
+
+    # 1. .ind — sample table.
+    try:
+        ind_df = pd.read_csv(
+            ind_path,
+            sep=r"\s+",
+            header=None,
+            names=["IID", "SEX", "PHENO1"],
+            dtype=str,
+            engine="python",
+        )
+    except (OSError, pd.errors.ParserError) as e:
+        raise IOFailure(f"cannot parse ASCII EIGENSTRAT .ind {ind_path}: {e}") from e
+    n_samples = len(ind_df)
+
+    # Write .psam with FID=0 (orchestrator's add_fid_from_pop sets FID=POP later).
+    # Sex mapping: M→1, F→2, U/anything→0 (plink2 spec).
+    psam_df = pd.DataFrame(
+        {
+            "#FID": ["0"] * n_samples,
+            "IID": ind_df["IID"].values,
+            "SEX": ind_df["SEX"].map({"M": "1", "F": "2"}).fillna("0").values,
+            "PHENO1": ind_df["PHENO1"].values,
+        }
+    )
+    out_psam = Path(str(out_prefix) + ".psam")
+    try:
+        psam_df.to_csv(out_psam, sep="\t", index=False, lineterminator="\n")
+    except OSError as e:
+        raise IOFailure(f"cannot write {out_psam}: {e}") from e
+
+    # 2. .snp — variant table.
+    try:
+        snp_df = pd.read_csv(
+            snp_path,
+            sep=r"\s+",
+            header=None,
+            names=["ID", "CHROM_RAW", "CM", "POS", "REF", "ALT"],
+            dtype={
+                "ID": str,
+                "CHROM_RAW": str,
+                "CM": float,
+                "POS": int,
+                "REF": str,
+                "ALT": str,
+            },
+            engine="python",
+        )
+    except (OSError, pd.errors.ParserError) as e:
+        raise IOFailure(f"cannot parse ASCII EIGENSTRAT .snp {snp_path}: {e}") from e
+    n_variants_raw = len(snp_df)
+
+    # Normalize chromosome ints, then apply autosome filter via include_chrom.
+    snp_df["CHROM"] = snp_df["CHROM_RAW"].map(normalize_chrom).astype("int8")
+    keep_mask = snp_df["CHROM"].isin(include_chrom).to_numpy()
+    snp_kept = snp_df.loc[keep_mask].copy()
+    n_variants = len(snp_kept)
+
+    out_pvar = Path(str(out_prefix) + ".pvar")
+    pvar_df = pd.DataFrame(
+        {
+            "#CHROM": snp_kept["CHROM"].astype(int),
+            "POS": snp_kept["POS"],
+            "ID": snp_kept["ID"],
+            "REF": snp_kept["REF"].str.upper(),
+            "ALT": snp_kept["ALT"].str.upper(),
+            "CM": snp_kept["CM"],
+        }
+    )
+    try:
+        pvar_df.to_csv(out_pvar, sep="\t", index=False, lineterminator="\n")
+    except OSError as e:
+        raise IOFailure(f"cannot write {out_pvar}: {e}") from e
+
+    # 3. .geno — fixed-width per-line genotype matrix.
+    try:
+        raw = np.fromfile(geno_path, dtype=np.uint8)
+    except OSError as e:
+        raise IOFailure(f"cannot read ASCII EIGENSTRAT .geno {geno_path}: {e}") from e
+
+    expected = n_variants_raw * (n_samples + 1)
+    if raw.size != expected:
+        raise IOFailure(
+            f"ASCII EIGENSTRAT .geno size mismatch at {geno_path}: expected "
+            f"{n_variants_raw} variants x ({n_samples} samples + 1 newline) = "
+            f"{expected} bytes, got {raw.size} bytes. Possible causes: line-count "
+            f"disagreement with .snp ({snp_path}), trailing newlines, CRLF line "
+            f"endings, or PACKEDANCESTRYMAP binary file mis-detected as ASCII."
+        )
+
+    # Drop the trailing-newline column and convert ASCII '0'/'1'/'2'/'9' digits.
+    matrix_chars = raw.reshape(n_variants_raw, n_samples + 1)[:, :n_samples]
+    matrix_int = matrix_chars.astype(np.int16) - ord("0")  # int16 to hold 9 cleanly
+    # eig 0/1/2 (count of REF) → plink 0/1/2 (count of ALT) via 2 - x; 9 → -9.
+    matrix_int = np.where(matrix_int == 9, -9, 2 - matrix_int).astype(np.int8)
+    matrix_kept = matrix_int[keep_mask]
+
+    # 4. Stream variants to PFILE via PgenWriter.
+    out_pgen = Path(str(out_prefix) + ".pgen")
+    try:
+        writer = pgenlib.PgenWriter(
+            str(out_pgen).encode(),
+            sample_ct=n_samples,
+            variant_ct=n_variants,
+            nonref_flags=False,
+        )
+    except Exception as e:
+        raise IOFailure(f"cannot open PgenWriter for {out_pgen}: {e}") from e
+    try:
+        # PgenWriter.append_biallelic_batch takes (block_size, n_samples) int8.
+        # Stream in 1024-variant blocks to amortize the call overhead.
+        block = 1024
+        for start in range(0, n_variants, block):
+            end = min(start + block, n_variants)
+            chunk = np.ascontiguousarray(matrix_kept[start:end], dtype=np.int8)
+            writer.append_biallelic_batch(chunk)
+    finally:
+        writer.close()
+
+
 @contextmanager
 def prepared_input(
     prefix: Path,
@@ -245,7 +424,12 @@ def prepared_input(
         tmpdir = Path(tmpdir_str)
         out_prefix = tmpdir / base.name
 
-        _run_plink2_convert(fmt, base, out_prefix, include_chrom)
+        # EIGENSTRAT splits into PACKEDANCESTRYMAP (binary; plink2 reads it)
+        # vs ASCII per-line (plink2 doesn't; native parser handles it).
+        if fmt is InputFormat.EIGENSTRAT and not _is_packedancestrymap(Path(base_str + ".geno")):
+            _convert_ascii_eigenstrat(base, out_prefix, include_chrom)
+        else:
+            _run_plink2_convert(fmt, base, out_prefix, include_chrom)
 
         desc = InputDescriptor(
             path=prefix,

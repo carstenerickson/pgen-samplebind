@@ -96,9 +96,26 @@ class TestAmbiguousSnps:
     """A/T and C/G ambiguous SNPs — strand cannot be inferred from alleles alone."""
 
     @pytest.mark.parametrize("ref,alt", [("A", "T"), ("T", "A"), ("C", "G"), ("G", "C")])
-    def test_ambig_same_passthrough(self, ref: str, alt: str) -> None:
-        """Same canonical and other alleles → PASSTHROUGH even without trust_strand."""
+    def test_ambig_same_drops_by_default(self, ref: str, alt: str) -> None:
+        """Same canonical and other alleles → DROP(AMBIGUOUS_STRAND) by default.
+
+        Even when the (REF, ALT) pair is identical between canonical and other,
+        we cannot prove they're on the same strand because complementing the
+        pair gives the same pair (A/T → T/A, identical). Mergeit's
+        `strandcheck: YES` drops these for the same reason. v0.1 default.
+        """
         action, reason = resolve_alleles(ref, alt, ref, alt, trust_strand=False)
+        assert action == MergeAction.DROP
+        assert reason == DropReason.AMBIGUOUS_STRAND
+
+    @pytest.mark.parametrize("ref,alt", [("A", "T"), ("T", "A"), ("C", "G"), ("G", "C")])
+    def test_ambig_same_passthrough_with_trust_strand(self, ref: str, alt: str) -> None:
+        """--trust-strand opts in to passthrough for matching ambiguous pairs.
+
+        Use only when inputs come from the same data source / pipeline so REF/
+        ALT direction is guaranteed consistent across inputs.
+        """
+        action, reason = resolve_alleles(ref, alt, ref, alt, trust_strand=True)
         assert action == MergeAction.PASSTHROUGH
         assert reason is None
 
@@ -120,7 +137,7 @@ class TestAmbiguousSnps:
     def test_ambig_swapped_passes_with_trust_strand(
         self, c_ref: str, c_alt: str, o_ref: str, o_alt: str
     ) -> None:
-        """Per HLD: --trust-strand returns PASSTHROUGH for ambiguous swapped pairs."""
+        """--trust-strand returns PASSTHROUGH for ambiguous swapped pairs too."""
         action, reason = resolve_alleles(c_ref, c_alt, o_ref, o_alt, trust_strand=True)
         assert action == MergeAction.PASSTHROUGH
         assert reason is None

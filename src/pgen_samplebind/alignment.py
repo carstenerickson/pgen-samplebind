@@ -35,22 +35,23 @@ def resolve_alleles(
 
     Returns (action, drop_reason). drop_reason is None except when action is DROP.
 
-    Behavior summary (HLD truth table):
+    Behavior summary (HLD truth table v2):
       same alleles + same orientation        → PASSTHROUGH
       same alleles + swapped orientation     → REF_ALT_SWAP
       complement-of-other matches canonical  → STRAND_FLIP
       complement-of-other matches swapped    → STRAND_FLIP_AND_SWAP
-      ambiguous (A/T or C/G) + same order    → PASSTHROUGH
-      ambiguous + swapped order              → DROP(ambiguous_strand)
+      ambiguous (A/T or C/G), any order      → DROP(ambiguous_strand)
                                                or PASSTHROUGH under trust_strand
       anything else                          → DROP(allele_mismatch)
 
-    Note on `--trust-strand` for ambiguous SNPs: per HLD spec, trust_strand
-    on (A,T) vs (T,A) returns PASSTHROUGH (no recoding). Intended for
-    same-source panels where REF/ALT calls are guaranteed consistent even
-    for ambiguous SNPs. If REF/ALT actually differ on the same strand, the
-    genotypes will be silently mis-encoded — that is a deliberate design
-    choice per HLD; the user accepts the risk by setting --trust-strand.
+    Note on `--trust-strand` for ambiguous SNPs: by default pgen-samplebind
+    drops A/T and C/G ambiguous matches because strand cannot be verified
+    even when alleles agree (an A/T pair on the forward strand looks
+    identical to an A/T pair on the reverse strand — complementing A/T
+    gives T/A which is the same pair). This matches mergeit's `strandcheck`
+    behavior and is the safer default for cross-source merges. Pass
+    `--trust-strand` for single-source merges where REF/ALT calls are
+    guaranteed consistent across inputs even on ambiguous SNPs.
     """
     # Defensive: any non-ACGT input is an allele mismatch.
     if not (
@@ -66,9 +67,8 @@ def resolve_alleles(
         other_set = frozenset((other_ref, other_alt))
         if canonical_set != other_set:
             return MergeAction.DROP, DropReason.ALLELE_MISMATCH
-        if canonical_ref == other_ref:
-            return MergeAction.PASSTHROUGH, None
-        # REF/ALT swapped — ambiguous between actual swap and strand flip.
+        # Both inputs ambiguous at same site — strand undetermined regardless
+        # of REF/ALT order. Drop unless user explicitly trusts strand.
         if trust_strand:
             return MergeAction.PASSTHROUGH, None
         return MergeAction.DROP, DropReason.AMBIGUOUS_STRAND
@@ -180,7 +180,11 @@ def build_alignment_table(
     pvar_module.validate_unique_keys(canonical_pvar, policy.variant_key)
 
     # Initialize table from canonical (renamed `id` → `variant_id` per LLD §2.5).
+    # `cm` carries genetic-position (centiMorgans) through the pipeline so
+    # the output .pvar preserves it for Morgan-spaced jackknife consumers.
+    cm_col = canonical_pvar["cm"] if "cm" in canonical_pvar.columns else 0.0
     table = canonical_pvar[["chrom", "pos", "id", "ref", "alt"]].copy()
+    table["cm"] = cm_col
     table = table.rename(columns={"id": "variant_id"})
     table["canonical_idx"] = np.arange(len(table), dtype=np.int64)
 
@@ -251,9 +255,9 @@ def build_alignment_table(
         for k, v in triggers.items():
             summary.policy_error_triggers[k] = v
 
-    # Reorder columns: canonical_idx first, then chrom/pos/variant_id/ref/alt,
+    # Reorder columns: canonical_idx first, then chrom/pos/variant_id/ref/alt/cm,
     # then per-input action/reason/idx triplets.
-    leading = ["canonical_idx", "chrom", "pos", "variant_id", "ref", "alt"]
+    leading = ["canonical_idx", "chrom", "pos", "variant_id", "ref", "alt", "cm"]
     others = [c for c in table.columns if c not in leading]
     return table[leading + others]
 

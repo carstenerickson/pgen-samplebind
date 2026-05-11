@@ -67,7 +67,18 @@ class TestMergeReportTsv:
         report = tmp_path / "report.tsv"
         runner = CliRunner()
         runner.invoke(
-            cli, ["merge", str(a), str(b), "-o", str(out), "--report", str(report), "--quiet"]
+            cli,
+            [
+                "merge",
+                str(a),
+                str(b),
+                "-o",
+                str(out),
+                "--report",
+                str(report),
+                "--trust-strand",  # synth panels share variant_seed; same-source
+                "--quiet",
+            ],
         )
         # All data rows should have action == "passthrough" (same variant set)
         rows = report.read_text().splitlines()[1:]
@@ -103,7 +114,17 @@ class TestMergeReportJsonSummaryOnly:
         runner = CliRunner()
         runner.invoke(
             cli,
-            ["merge", str(a), str(b), "-o", str(out), "--report-json", str(report_json), "--quiet"],
+            [
+                "merge",
+                str(a),
+                str(b),
+                "-o",
+                str(out),
+                "--report-json",
+                str(report_json),
+                "--trust-strand",  # synth panels share variant_seed; same-source
+                "--quiet",
+            ],
         )
         payload = json.loads(report_json.read_text())
 

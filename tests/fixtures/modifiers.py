@@ -189,6 +189,52 @@ def find_unambiguous_variant_indices(in_prefix: Path) -> np.ndarray:
     return np.where(~(is_at | is_cg))[0]
 
 
+def write_ascii_eigenstrat(
+    out_prefix: Path,
+    geno_matrix: np.ndarray,
+    snp_rows: list[tuple[str, int, float, int, str, str]],
+    ind_rows: list[tuple[str, str, str]],
+) -> Path:
+    """Write a small ASCII per-line EIGENSTRAT triplet from arrays.
+
+    Useful for testing the native ASCII parser without needing convertf.
+
+    Args:
+        out_prefix: writes <out_prefix>.{geno, snp, ind}.
+        geno_matrix: shape (n_variants, n_samples), int8. Values in
+            EIGENSTRAT convention: 0/1/2 = count of REF allele, 9 = missing.
+        snp_rows: list of (rsID, chrom, cM, pos, REF, ALT).
+        ind_rows: list of (IID, sex, population).
+
+    Returns out_prefix.
+    """
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    n_variants, n_samples = geno_matrix.shape
+    assert n_variants == len(snp_rows)
+    assert n_samples == len(ind_rows)
+
+    # .geno: each variant on its own line, n_samples chars (no separator).
+    geno_path = Path(str(out_prefix) + ".geno")
+    with open(geno_path, "w") as f:
+        for row in geno_matrix:
+            f.write("".join(str(int(x)) for x in row))
+            f.write("\n")
+
+    # .snp: rsID chrom cM pos REF ALT (tab-separated)
+    snp_path = Path(str(out_prefix) + ".snp")
+    with open(snp_path, "w") as f:
+        for rsid, chrom, cm, pos, ref, alt in snp_rows:
+            f.write(f"{rsid}\t{chrom}\t{cm}\t{pos}\t{ref}\t{alt}\n")
+
+    # .ind: IID sex pop (tab-separated)
+    ind_path = Path(str(out_prefix) + ".ind")
+    with open(ind_path, "w") as f:
+        for iid, sex, pop in ind_rows:
+            f.write(f"{iid}\t{sex}\t{pop}\n")
+
+    return out_prefix
+
+
 def pfile_to_eigenstrat(pfile_prefix: Path, out_prefix: Path) -> Path:
     """Convert a PFILE to EIGENSTRAT (.geno/.snp/.ind) via plink2 shell-out.
 
