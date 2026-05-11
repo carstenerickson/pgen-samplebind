@@ -14,6 +14,7 @@ from pathlib import Path
 import click
 
 from . import __version__
+from .commands.afs_cmd import run_afs
 from .commands.hash_cmd import run_hash
 from .commands.inspect_cmd import run_inspect
 from .commands.merge_cmd import run_merge
@@ -312,6 +313,72 @@ def validate_command(
         relabel_from=relabel_from,
         relabel_input_col=relabel_input_col,
         relabel_output_col=relabel_output_col,
+    )
+
+
+@cli.command("afs")
+@click.argument("input_path", type=click.Path(exists=False, path_type=Path))
+@click.option(
+    "-o",
+    "--out",
+    "output_dir",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Output directory for the three AFS TSVs + manifest.json.",
+)
+@click.option(
+    "--population-column",
+    default="POP",
+    help="`.psam` column to aggregate by (default: POP — set by pgen-samplebind merge).",
+)
+@click.option(
+    "--populations",
+    "populations_filter",
+    multiple=True,
+    help="Restrict to a subset of populations (repeat flag for each). Default: all.",
+)
+@click.option(
+    "--no-pseudohaploid-adjust",
+    "adjust_pseudohaploid",
+    is_flag=True,
+    default=True,
+    flag_value=False,
+    help="Skip pseudohaploid called-allele adjustment (treat all samples as diploid). "
+    "Default: adjust when input has a PSEUDOHAPLOID column.",
+)
+@click.option(
+    "--include-sex-chrom",
+    is_flag=True,
+    default=False,
+    help="Include sex chromosomes (chr 23/24/25/26). Default: autosomes only.",
+)
+@click.option("--block-size", type=int, default=2048)
+@click.option("--quiet", is_flag=True, default=False)
+def afs_command(
+    input_path: Path,
+    output_dir: Path,
+    population_column: str,
+    populations_filter: tuple[str, ...],
+    adjust_pseudohaploid: bool,
+    include_sex_chrom: bool,
+    block_size: int,
+    quiet: bool,
+) -> None:
+    """Per-population allele-frequency-spectrum TSVs from one PFILE/BFILE/EIGENSTRAT input.
+
+    Emits three TSVs + manifest matching AT2's `*_to_afs()` shape so a small R
+    loader can feed them into downstream f-statistic work without a BED
+    intermediate. Bridge until `pfile_to_afs()` lands in AT2 upstream.
+    """
+    run_afs(
+        input_path=input_path,
+        output_dir=output_dir,
+        population_column=population_column,
+        populations_filter=populations_filter if populations_filter else None,
+        adjust_pseudohaploid=adjust_pseudohaploid,
+        include_sex_chrom=include_sex_chrom,
+        block_size=block_size,
+        quiet=quiet,
     )
 
 

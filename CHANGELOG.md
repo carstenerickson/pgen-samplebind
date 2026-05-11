@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`afs` subcommand** — bridge for the PFILE-native pipeline. Streams genotypes from a PFILE/BFILE/EIGENSTRAT input and emits three TSVs + a manifest matching AdmixTools 2's `*_to_afs()` shape (per-variant ALT frequencies, called-allele counts, SNP metadata). With pseudohaploid adjustment by default (`--no-pseudohaploid-adjust` to skip). Includes `scripts/load_pgensb_afs.R` for direct loading into the AT2 three-data-frame format. Removes the need for a `plink2 --make-bed` last-mile conversion before f-statistic computation. Bridge until `pfile_to_afs()` lands in admixtools upstream.
+
 ## [0.1.0] - 2026-05-10
 
 Initial public release. The missing `plink2 --pmerge` non-concatenating case for ancient-DNA / population-genetics workflows.
@@ -43,7 +47,7 @@ Initial public release. The missing `plink2 --pmerge` non-concatenating case for
 
 ### Test coverage
 
-262 tests at release: 165 unit + ~95 integration + dogfood end-to-end byte-equality proof against the `mergeit + plink2 + awk` reference pipeline on the Track E Phase 7 panel build (md5-identical proximal qpAdm shootout output; see `cs-wiki/projects/pgen-samplebind-phase7-dogfood.md`). HLD test 17 (`mergeit f2` parity) and HLD test 18 (perf benchmark) are gated to dedicated CI cells; HLD test 16 (Phase 6/7 panel hash invariance) is the manual nightly path.
+262 tests at release: 165 unit + ~95 integration + dogfood end-to-end byte-equality proof against the `mergeit + plink2 + awk` reference pipeline on a real-world Reich-Lab-style ancient-DNA panel build (md5-identical proximal qpAdm shootout output). HLD test 17 (`mergeit f2` parity) and HLD test 18 (perf benchmark) are gated to dedicated CI cells; HLD test 16 (panel hash invariance) is the manual nightly path.
 
 ### Known limitations
 

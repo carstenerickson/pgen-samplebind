@@ -91,6 +91,7 @@ pgen-samplebind merge \
 ```
 pgen-samplebind merge     INPUT [INPUT ...] -o OUTPUT [options]
 pgen-samplebind validate  INPUT [INPUT ...]                [options]
+pgen-samplebind afs       INPUT             -o OUTDIR     [options]
 pgen-samplebind hash      INPUT
 pgen-samplebind inspect   INPUT
 ```
@@ -138,6 +139,30 @@ pgen-samplebind hash /data/aadr_v66_subset.geno_prefix
 ```
 
 `--emit-canonical` prints the canonicalized bytestream that's hashed (for diagnosis when two inputs *should* match but don't).
+
+### `afs` — per-population allele-frequency-spectrum TSVs
+
+```bash
+pgen-samplebind afs panel -o panel_afs/
+```
+
+Streams genotypes from a PFILE/BFILE/EIGENSTRAT input and emits three TSVs + a manifest JSON matching the shape AdmixTools 2's `*_to_afs()` family returns:
+
+```
+panel_afs/
+├── afs_snp.tsv       (variant_id, chrom, pos, ref, alt, cm)
+├── afs_freq.tsv      (variant_id × population, ALT-allele frequency)
+├── afs_counts.tsv    (variant_id × population, called-allele counts)
+└── afs_manifest.json (tool version, sample counts per pop, parameters)
+```
+
+Useful for the **PFILE-native pipeline**: skip the `plink2 --pfile … --make-bed` last-mile step before AT2 by feeding `afs` output directly into f-statistic computations. Bridge until `pfile_to_afs()` lands in admixtools upstream — see `scripts/load_pgensb_afs.R` for an R loader that turns the TSVs into the three-data-frame list AT2 consumes.
+
+Key flags:
+- `--populations POP` (repeatable) — restrict to a subset of populations
+- `--no-pseudohaploid-adjust` — skip pseudohaploid called-allele adjustment (treats all samples as diploid). Default applies the adjustment when the input has a `PSEUDOHAPLOID` column — pseudohaploid samples then contribute 1 called allele (not 2) for correct effective sample sizes in downstream variance estimates. Allele frequencies are unchanged.
+- `--include-sex-chrom` — extend to chr 23/24/25/26 (default: autosomes only)
+- `--population-column NAME` — aggregate by a `.psam` column other than `POP`
 
 ### `inspect` — structured summary of one input
 
