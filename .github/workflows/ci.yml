@@ -143,8 +143,12 @@ jobs:
           path: ${{ env.R_LIBS_USER }}
           key: r-admixtools-${{ runner.os }}-R4.4-stable-build-runnable-v1
 
+      # System libraries are RUNTIME dependencies of igraph + ggplot2 (the
+       # R-package cache stores .so's that dlopen libglpk.so.40, libharfbuzz,
+       # etc.). The apt install must run every job, not just on cache-miss —
+       # each CI runner is fresh, so any cached .so's would otherwise dyn.load
+       # against missing system libs.
       - name: Install system deps for R packages
-        if: steps.cache-r.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
