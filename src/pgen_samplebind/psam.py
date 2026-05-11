@@ -107,6 +107,114 @@ def add_fid_from_pop(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def read_relabel_tsv(
+    path: Path,
+    input_col: str | None,
+    output_col: str | None,
+) -> pd.DataFrame:
+    """Read a relabel TSV in either 2-col or N-col form per HLD §Relabeling.
+
+    Decision rule:
+      - Both input_col and output_col absent → 2-col header-less TSV
+        (rows are `<from_pop>\\t<to_pop>` pairs; source column is the
+        sample's POP).
+      - Both present → N-col header-required TSV (e.g., AADR .anno);
+        the named columns are pulled out and renamed to "input" and
+        "output". Source column is whatever id_column the orchestrator
+        passes (default IID).
+      - One present, the other absent → UsageError (ambiguous).
+
+    Returns a DataFrame with two columns: "input" and "output".
+
+    Raises:
+        UsageError: only one of input_col/output_col supplied; or N-col
+            named columns not present in the file.
+        IOFailure: TSV unreadable or unparseable.
+    """
+    if (input_col is None) != (output_col is None):
+        raise UsageError(
+            "--relabel-input-col and --relabel-output-col must be supplied "
+            "together (N-col form), or both omitted (2-col header-less form). "
+            f"Got input_col={input_col!r}, output_col={output_col!r}."
+        )
+
+    try:
+        if input_col is None:
+            # 2-col header-less TSV
+            df = pd.read_csv(
+                path,
+                sep="\t",
+                header=None,
+                names=["input", "output"],
+                dtype=str,
+                na_filter=False,
+            )
+            if df.shape[1] != 2:
+                raise UsageError(
+                    f"--relabel-from {path}: expected 2 tab-delimited columns "
+                    f"(no header) but found {df.shape[1]}. For wider TSVs use "
+                    f"--relabel-input-col and --relabel-output-col to pick "
+                    f"two columns by name."
+                )
+            return df
+
+        # N-col header-required TSV
+        df = pd.read_csv(path, sep="\t", dtype=str, na_filter=False)
+    except (OSError, pd.errors.ParserError) as e:
+        raise IOFailure(f"cannot parse --relabel-from {path}: {e}") from e
+
+    if input_col not in df.columns:
+        raise UsageError(
+            f"--relabel-input-col {input_col!r} not in {path}. "
+            f"Available columns: {list(df.columns)}"
+        )
+    if output_col not in df.columns:
+        raise UsageError(
+            f"--relabel-output-col {output_col!r} not in {path}. "
+            f"Available columns: {list(df.columns)}"
+        )
+    return df[[input_col, output_col]].rename(columns={input_col: "input", output_col: "output"})
+
+
+def apply_relabel(
+    psam: pd.DataFrame,
+    relabel: pd.DataFrame,
+    source_column: str,
+    target_column: str = "POP",
+) -> pd.DataFrame:
+    """Map each sample's source_column value through the relabel; if found,
+    set target_column to the relabel's output value. Otherwise leave
+    target_column as-is. Per HLD §Relabeling.
+
+    For 2-col relabel: source_column = "POP" (rows are POP→POP, collapse
+    populations across inputs).
+    For N-col relabel: source_column = id_column (default IID; rows are
+    sample-id → POP, override per-sample).
+
+    Returns a NEW DataFrame; input untouched.
+    """
+    if source_column not in psam.columns:
+        raise UsageError(
+            f"--relabel-from source column {source_column!r} not present in "
+            f".psam columns: {list(psam.columns)}. Use --id-column NAME if your "
+            f".psam uses a non-IID identifier."
+        )
+    if target_column not in psam.columns:
+        raise UsageError(
+            f"--relabel-from target column {target_column!r} not present in "
+            f".psam columns: {list(psam.columns)} (expected POP after auto-detect)."
+        )
+
+    out = psam.copy()
+    mapping: dict[str, str] = dict(
+        zip(relabel["input"].astype(str), relabel["output"].astype(str), strict=True)
+    )
+    out[target_column] = [
+        mapping.get(str(s), t) for s, t in zip(out[source_column], out[target_column], strict=True)
+    ]
+    return out
+
+
 def resolve_sample_identity(
     psams: list[pd.DataFrame],
     policy: MergePolicy,

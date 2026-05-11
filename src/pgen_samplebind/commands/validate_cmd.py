@@ -32,6 +32,9 @@ def run_validate(
     report_path: Path | None,
     report_json_path: Path | None,
     quiet: bool,
+    relabel_from: Path | None = None,
+    relabel_input_col: str | None = None,
+    relabel_output_col: str | None = None,
 ) -> None:
     """Validate subcommand orchestrator. Per LLD §4.2.
 
@@ -62,6 +65,14 @@ def run_validate(
             pop_col = psam.detect_population_column(df, policy.population_column)
             df = psam.rename_to_pop(df, pop_col)
             psam_dfs.append(df)
+
+        # --relabel-from per-input (HLD §Relabeling) — same logic as merge.
+        if relabel_from is not None:
+            relabel_df = psam.read_relabel_tsv(relabel_from, relabel_input_col, relabel_output_col)
+            source_col = "POP" if relabel_input_col is None else policy.id_column
+            psam_dfs = [
+                psam.apply_relabel(df, relabel_df, source_column=source_col) for df in psam_dfs
+            ]
 
         descriptors = [
             replace(d, n_samples=len(df)) for d, df in zip(descriptors, psam_dfs, strict=True)

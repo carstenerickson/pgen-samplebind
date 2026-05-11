@@ -104,6 +104,26 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
     help="Exit 1 if ambiguous-strand drops exceed N%% of intersection (default 10).",
 )
 @click.option(
+    "--relabel-from",
+    "relabel_from",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="TSV-driven relabel of the population (POP) column. Two-col form "
+    "(no header) maps POP→POP across inputs; N-col form (with --relabel-input-col "
+    "and --relabel-output-col) joins per-sample on the input column.",
+)
+@click.option(
+    "--relabel-input-col",
+    default=None,
+    help="For N-col --relabel-from TSVs: which column matches each sample's "
+    "id_column value (default IID; override with --id-column).",
+)
+@click.option(
+    "--relabel-output-col",
+    default=None,
+    help="For N-col --relabel-from TSVs: which column to map to (becomes the new POP value).",
+)
+@click.option(
     "--report",
     "report_path",
     type=click.Path(path_type=Path),
@@ -141,6 +161,9 @@ def merge_command(
     population_column: str | None,
     target_min_call_rate: float,
     validate_strand_fail_pct: float,
+    relabel_from: Path | None,
+    relabel_input_col: str | None,
+    relabel_output_col: str | None,
     report_path: Path | None,
     report_json_path: Path | None,
     report_json_include_rows: bool,
@@ -173,6 +196,9 @@ def merge_command(
         report_path=report_path,
         report_json_path=report_json_path,
         quiet=quiet,
+        relabel_from=relabel_from,
+        relabel_input_col=relabel_input_col,
+        relabel_output_col=relabel_output_col,
     )
 
 
@@ -201,6 +227,16 @@ def merge_command(
     default=10.0,
     help="Exit 1 if ambiguous-strand drops exceed N%% of intersection (default 10).",
 )
+@click.option(
+    "--relabel-from",
+    "relabel_from",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="TSV-driven POP relabel (per HLD §Relabeling). 2-col header-less or "
+    "N-col with --relabel-input-col / --relabel-output-col.",
+)
+@click.option("--relabel-input-col", default=None)
+@click.option("--relabel-output-col", default=None)
 @click.option(
     "--report",
     "report_path",
@@ -234,6 +270,9 @@ def validate_command(
     id_column: str,
     population_column: str | None,
     validate_strand_fail_pct: float,
+    relabel_from: Path | None,
+    relabel_input_col: str | None,
+    relabel_output_col: str | None,
     report_path: Path | None,
     report_json_path: Path | None,
     report_json_include_rows: bool,
@@ -262,6 +301,9 @@ def validate_command(
         report_path=report_path,
         report_json_path=report_json_path,
         quiet=quiet,
+        relabel_from=relabel_from,
+        relabel_input_col=relabel_input_col,
+        relabel_output_col=relabel_output_col,
     )
 
 

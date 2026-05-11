@@ -53,6 +53,9 @@ def run_merge(
     report_path: Path | None,
     report_json_path: Path | None,
     quiet: bool,
+    relabel_from: Path | None = None,
+    relabel_input_col: str | None = None,
+    relabel_output_col: str | None = None,
 ) -> None:
     """Merge subcommand orchestrator. Per LLD §4.1.
 
@@ -99,14 +102,29 @@ def run_merge(
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
 
-        # Step 6: read psams; detect population column; rename → POP; add FID = POP
+        # Step 6: read psams; detect population column; rename → POP.
+        # NOTE: add_fid_from_pop must run AFTER --relabel-from (Day 9), because
+        # the relabel may change POP and FID should mirror the final POP.
         psam_dfs = []
         for desc in descriptors:
             df = psam.read_psam(desc.psam_path)
             pop_col = psam.detect_population_column(df, policy.population_column)
             df = psam.rename_to_pop(df, pop_col)
-            df = psam.add_fid_from_pop(df)
             psam_dfs.append(df)
+
+        # Step 7: --relabel-from per-input (HLD §Relabeling). Applied per-input
+        # before sample-bind so different inputs can have independent relabels.
+        if relabel_from is not None:
+            relabel_df = psam.read_relabel_tsv(relabel_from, relabel_input_col, relabel_output_col)
+            # 2-col form (no input/output col flags) → source = POP (collapse).
+            # N-col form (flags supplied) → source = id_column (per-sample override).
+            source_col = "POP" if relabel_input_col is None else policy.id_column
+            psam_dfs = [
+                psam.apply_relabel(df, relabel_df, source_column=source_col) for df in psam_dfs
+            ]
+
+        # Now FID = POP (after any relabel applied)
+        psam_dfs = [psam.add_fid_from_pop(df) for df in psam_dfs]
 
         # Populate descriptor n_samples (from psam) and n_variants (cheap raw line
         # count from .pvar) — both used by reporting; merge_inputs reads pvars
