@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Bumped `numpy` and `pandas` upper bounds** to allow current major versions:
+  - `numpy>=1.26,<2` → `numpy>=1.26,<3` (admits numpy 2.x)
+  - `pandas>=2.2,<3` → `pandas>=2.2,<4` (admits pandas 3.x)
+  Pgenlib 0.94.0 was compiled against the stable NumPy C API, so it works against both 1.x and 2.x ABIs without rebuild. Validated locally with the full test suite (278 passed) on numpy 2.4.4 + pandas 3.0.3 + pgenlib 0.94.0. The AADR dogfood `dogfood_full` tier in CI runs the same numerical-parity check against the mergeit reference TSV on every commit, so future numpy / pandas / pgenlib bumps are auto-validated end-to-end through to qpAdm.
+
+
 ### Added
 
 - **AADR-derivative dogfood regression test** (`tests/dogfood/`). A 44-sample × 50K-variant fixture drawn from AADR v66 under fair-use for non-commercial scholarly verification, with a vendored mergeit-pipeline reference qpAdm TSV. Six tests across three tiers (default / `dogfood_plink2` / `dogfood_full`) verify pgen-samplebind reproduces the established `mergeit + plink2 + AdmixTools 2` pipeline end-to-end. Includes provenance script `build_fixture.py` so the fixture can be regenerated from AADR + auxiliary panels. Default-tier tests run in ~10s with no external dependencies; full-tier (with R + admixtools installed) verifies qpAdm output numerically matches the reference within 1e-6 on weights and 1e-4 on p_tail (cross-architecture float-arithmetic noise floor is ~1e-12). See `tests/dogfood/README.md` for fair-use rationale and run instructions.
