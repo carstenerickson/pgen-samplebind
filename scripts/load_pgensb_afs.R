@@ -1,13 +1,26 @@
 #!/usr/bin/env Rscript
-# load_pgensb_afs.R — read pgen-samplebind `afs` subcommand output into the
-# three-data-frame list shape that AdmixTools 2's `*_to_afs()` family returns.
+# load_pgensb_afs.R — read pgen-samplebind `afs` subcommand output into a
+# three-data-frame list (freq, counts, snp).
+#
+# This is a RAW loader: it returns the AFS exactly as pgen-samplebind
+# wrote it. It does NOT apply the filter AT2's `extract_f2()` silently
+# applies (`discard_from_aftable(maxmiss=0, minmaf=0, maxmaf=0.5, ...)`)
+# before writing its cache. Feeding this raw output into AT2's
+# `afs_to_f2()` will produce f2 / qpAdm results that diverge from
+# `extract_f2()` on the same panel (concrete failure mode documented in
+# the Phase 7 dogfood-2 writeup).
+#
+# For feeding pgen-samplebind AFS into AT2's f2 / qpAdm chain, use the
+# sibling script `pgensb_afs_to_at2_f2_cache.R` which applies the right
+# filter and drives `afs_to_f2` end-to-end into an AT2-ready cache.
+#
+# Use this raw loader for inspecting / diffing / debugging AFS contents
+# directly, not as the AT2 entry point.
 #
 # Usage from R:
 #   source("load_pgensb_afs.R")
 #   afs <- load_pgensb_afs("path/to/afs_output_dir")
-#   # afs$freq, afs$counts, afs$snp now match AT2's eigenstrat_to_afs() shape
-#
-# Bridge until `pfile_to_afs()` lands in admixtools upstream.
+#   # afs$freq, afs$counts, afs$snp are unfiltered data frames.
 
 suppressPackageStartupMessages({
   library(jsonlite)

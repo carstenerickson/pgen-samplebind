@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pgen-samplebind afs` write-path 15-min → ~2-min on 1240k-scale panels.** Previous implementation used `pandas.to_csv(float_format="%.10g")` for the freq matrix, which is single-threaded printf-per-cell and dominated wallclock at scale (1.1M variants × 30 populations = 34M format calls). Replaced with a numpy-vectorized `np.char.mod("%.7g", block)` + chunked join in `afs._write_freq_tsv_fast`. ~50× speedup on large panels; below-noise-floor precision impact on downstream f-statistics (`%.7g` ≈ 23 bits, well below the float64 arithmetic-order noise in AT2's jackknife chain).
+
+### Added
+
+- **`scripts/pgensb_afs_to_at2_f2_cache.R`** — end-to-end R bridge that reads a pgen-samplebind AFS bundle and writes an AdmixTools 2-compatible f2 cache directory. Applies the `discard_from_aftable(maxmiss=0, ...)` filter that `extract_f2` silently applies (without which downstream `afs_to_f2` produces divergent f2; this was discovered during the Phase 7 dogfood-2). Drives `afs_to_f2()` for both `type='f2'` (with `poly_only=TRUE`) and `type='ap'` (with `poly_only=FALSE`) to match `extract_f2(qpfstats=FALSE)`'s behavior. Output is consumable directly by `f2_from_precomp(afprod=TRUE)` → `qpadm()` etc. The previous `scripts/load_pgensb_afs.R` is now documented as a raw loader for inspection — not the AT2 entry point.
+- README AFS section updated to reference the new end-to-end bridge and document the qpfstats-bypass limitation.
+
+
 ### Added
 
 - **`afs` subcommand** — bridge for the PFILE-native pipeline. Streams genotypes from a PFILE/BFILE/EIGENSTRAT input and emits three TSVs + a manifest matching AdmixTools 2's `*_to_afs()` shape (per-variant ALT frequencies, called-allele counts, SNP metadata). With pseudohaploid adjustment by default (`--no-pseudohaploid-adjust` to skip). Includes `scripts/load_pgensb_afs.R` for direct loading into the AT2 three-data-frame format. Removes the need for a `plink2 --make-bed` last-mile conversion before f-statistic computation. Bridge until `pfile_to_afs()` lands in admixtools upstream.

@@ -156,7 +156,25 @@ panel_afs/
 └── afs_manifest.json (tool version, sample counts per pop, parameters)
 ```
 
-Useful for the **PFILE-native pipeline**: skip the `plink2 --pfile … --make-bed` last-mile step before AT2 by feeding `afs` output directly into f-statistic computations. Bridge until `pfile_to_afs()` lands in admixtools upstream — see `scripts/load_pgensb_afs.R` for an R loader that turns the TSVs into the three-data-frame list AT2 consumes.
+Useful for the **PFILE-native pipeline**: skip the `plink2 --pfile … --make-bed` last-mile step before AT2's non-qpfstats f2 / qpAdm path. Bridge until `pfile_to_afs()` lands in admixtools upstream.
+
+**Feeding AFS into AT2** — use the end-to-end bridge script:
+
+```bash
+Rscript scripts/pgensb_afs_to_at2_f2_cache.R panel_afs/ panel_at2_f2_cache/
+```
+
+This loads the AFS bundle, applies the `discard_from_aftable(maxmiss=0, …)` filter that AT2's `extract_f2` silently applies before writing its cache, then calls `afs_to_f2()` twice (once with `poly_only=TRUE` for `type='f2'`, once with `poly_only=FALSE` for `type='ap'`) to produce an AT2-ready f2 cache. From R:
+
+```r
+library(admixtools)
+f2 <- f2_from_precomp("panel_at2_f2_cache/", pops = my_pops, afprod = TRUE)
+qpadm(f2, left = ..., right = ..., target = ...)
+```
+
+The sibling `scripts/load_pgensb_afs.R` is a **raw loader** that returns the AFS as in-memory data frames without filtering — use it for inspection / debugging, not as the AT2 entry point (raw AFS fed into `afs_to_f2()` produces divergent f2 because `extract_f2`'s `maxmiss=0` filter isn't applied).
+
+**Limitation**: AT2's `extract_f2(qpfstats=TRUE)` path reads genotypes directly and bypasses the AFS layer entirely. For workflows that need qpfstats (e.g., ancient-DNA with high missingness), the PFILE→BED last-mile remains. The byte-equal-to-mergeit-`qpfstats` proof comes from the PFILE→BED→qpfstats path, not this AFS bridge.
 
 Key flags:
 - `--populations POP` (repeatable) — restrict to a subset of populations
