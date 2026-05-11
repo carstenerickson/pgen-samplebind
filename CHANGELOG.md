@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Native ASCII per-line EIGENSTRAT input.** plink2 `--eigfile` only reads PACKEDANCESTRYMAP-format EIGENSTRAT (binary `GENO ` header). Older ASCII per-line files (one digit per sample-variant cell, no header) are now parsed natively — no convertf pre-conversion required. Format is auto-detected from the `.geno` header bytes.
+- **PyPI release pipeline.** `.github/workflows/release.yml` triggers on `v*` tag pushes, builds sdist + wheel, validates with `twine check --strict`, smoke-tests the built wheel against the unit suite on `ubuntu-latest` + `macos-latest` × Python 3.11/3.12, and publishes to PyPI via OIDC trusted publishing (no long-lived API token in repo secrets). Manual `workflow_dispatch` runs build + test only as a dry-run.
+- **`py.typed` marker** ships with the wheel so type-checkers honor the package's inline type hints. `Typing :: Typed` classifier added.
+
+### Packaging
+
+- pyproject.toml polished: added `Repository` and `Changelog` URLs, expanded classifiers (Linux/macOS, Python 3-only, `Console`, `Typing :: Typed`), added `twine` to dev extras.
 
 - `merge` subcommand: bind two or more PFILE/BFILE/EIGENSTRAT inputs sharing a variant set into one output PFILE.
   - Two-pass architecture: pass 1 alignment via pandas, pass 2 genotype streaming via pgenlib `read_range` / `append_biallelic_batch` with chromosome-aware block iteration.

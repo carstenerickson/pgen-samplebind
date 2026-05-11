@@ -15,11 +15,17 @@ authors = [
 keywords = ["bioinformatics", "genetics", "plink2", "pgen", "ancient-dna", "admixtools"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
 ]
 dependencies = [
     "Pgenlib==0.94.0",
@@ -36,6 +42,7 @@ dev = [
     "mypy>=1.11",
     "pandas-stubs>=2.2",
     "build>=1.2",
+    "twine>=5.0",
 ]
 
 [project.scripts]
@@ -43,10 +50,15 @@ pgen-samplebind = "pgen_samplebind.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/carstenerickson/pgen-samplebind"
+Repository = "https://github.com/carstenerickson/pgen-samplebind"
 Issues = "https://github.com/carstenerickson/pgen-samplebind/issues"
+Changelog = "https://github.com/carstenerickson/pgen-samplebind/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+pgen_samplebind = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
