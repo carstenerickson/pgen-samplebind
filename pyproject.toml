@@ -84,5 +84,8 @@ markers = [
     "eigenstrat: requires plink2 with EIGENSTRAT support (HLD tests 7, 8, 13, 15, 16)",
     "network: requires internet (HLD test 14 AADR Dataverse fetch)",
     "external_tool: requires AT2 / mergeit binaries (HLD test 17)",
+    "dogfood: AADR-derivative regression tests (see tests/dogfood/README.md)",
+    "dogfood_plink2: dogfood subset requiring plink2 on PATH",
+    "dogfood_full: dogfood subset requiring R + admixtools (full qpAdm shootout)",
 ]
 addopts = "-ra --strict-markers"

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AADR-derivative dogfood regression test** (`tests/dogfood/`). A 44-sample × 50K-variant fixture drawn from AADR v66 under fair-use for non-commercial scholarly verification, with a vendored mergeit-pipeline reference qpAdm TSV. Six tests across three tiers (default / `dogfood_plink2` / `dogfood_full`) verify pgen-samplebind reproduces the established `mergeit + plink2 + AdmixTools 2` pipeline end-to-end. Includes provenance script `build_fixture.py` so the fixture can be regenerated from AADR + auxiliary panels. Default-tier tests run in ~10s with no external dependencies; full-tier (with R + admixtools installed) verifies qpAdm output numerically matches the reference within 1e-6 on weights and 1e-4 on p_tail (cross-architecture float-arithmetic noise floor is ~1e-12). See `tests/dogfood/README.md` for fair-use rationale and run instructions.
+
+
 ### Fixed
 
 - **`pgen-samplebind afs` write-path 15-min → ~2-min on 1240k-scale panels.** Previous implementation used `pandas.to_csv(float_format="%.10g")` for the freq matrix, which is single-threaded printf-per-cell and dominated wallclock at scale (1.1M variants × 30 populations = 34M format calls). Replaced with a numpy-vectorized `np.char.mod("%.7g", block)` + chunked join in `afs._write_freq_tsv_fast`. ~50× speedup on large panels; below-noise-floor precision impact on downstream f-statistics (`%.7g` ≈ 23 bits, well below the float64 arithmetic-order noise in AT2's jackknife chain).

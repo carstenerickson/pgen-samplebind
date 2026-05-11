@@ -54,6 +54,10 @@ Thumbs.db
 !tests/fixtures/tiny_aadr/*.psam
 !tests/data/*.geno
 !tests/data/*.snp
+# Dogfood fixture — vendored AADR-derivative for regression test (see tests/dogfood/README.md)
+!tests/dogfood/fixtures/*.geno
+!tests/dogfood/fixtures/*.snp
+!tests/dogfood/fixtures/*.ind
 
 # Tool tempdirs
 pgen-samplebind-eig-*
