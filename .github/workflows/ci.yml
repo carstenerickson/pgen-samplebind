@@ -149,6 +149,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxml2-dev libssl-dev libcurl4-openssl-dev libgsl-dev libfontconfig1-dev
 
+      - name: Configure R Makevars for C++14
+        if: steps.cache-r.outputs.cache-hit != 'true'
+        run: |
+          # admixtools depends on RcppArmadillo, which requires C++14.
+          # R 4.4 still defaults to C++11 for source-builds; without this
+          # override the build fails at fn_accu.hpp with "auto type specifier
+          # without trailing return type" (a C++14-only feature).
+          mkdir -p ~/.R
+          cat >> ~/.R/Makevars <<'MK'
+          CXX14 = g++
+          CXX14STD = -std=c++14
+          CXX14FLAGS = -O2 -Wall
+          CXX14PICFLAGS = -fpic
+          CXX = g++ -std=c++14
+          CXXFLAGS = -O2 -Wall
+          MK
+
       - name: Install admixtools R package
         if: steps.cache-r.outputs.cache-hit != 'true'
         env:
