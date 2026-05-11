@@ -148,7 +148,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxml2-dev libssl-dev libcurl4-openssl-dev libgsl-dev libfontconfig1-dev
+            libxml2-dev libssl-dev libcurl4-openssl-dev libgsl-dev libfontconfig1-dev \
+            libglpk-dev libharfbuzz-dev libfribidi-dev libpng-dev libtiff5-dev libjpeg-dev
 
       # We install from a maintained fork (carstenerickson/admixtools) on the
       # `stable/build-runnable` branch — a curated merge of the upstream PRs
