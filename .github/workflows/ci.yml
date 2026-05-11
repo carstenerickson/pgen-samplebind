@@ -151,6 +151,11 @@ jobs:
 
       - name: Install admixtools R package
         if: steps.cache-r.outputs.cache-hit != 'true'
+        env:
+          # remotes::install_github falls back to anonymous API calls (60/hr)
+          # unless GITHUB_PAT is set. The Actions-provided GITHUB_TOKEN raises
+          # the limit to 5000/hr — comfortably enough for one install pass.
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
           Rscript -e 'install.packages("remotes", repos="https://packagemanager.posit.co/cran/__linux__/jammy/latest")'
           Rscript -e 'remotes::install_github("uqrmaie1/admixtools", upgrade="never", build_vignettes=FALSE)'
