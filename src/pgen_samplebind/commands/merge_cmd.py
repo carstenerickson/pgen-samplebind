@@ -1,12 +1,4 @@
-"""`merge` subcommand orchestrator. Sequence in LLD §4.1.
-
-Day 3-4 scope: end-to-end PFILE merge with reports + HLD-style stdout summary.
-Deferred to later days:
-- check_plink2_available (only needed for EIGENSTRAT/BFILE) — Day 6
-- --relabel-from (psam relabel) — Day 9
-- Output cleanup wrapper (try/except → unlink triplet) — Day 6
-- Concurrency lock (output_lock) — Day 10
-"""
+"""`merge` subcommand orchestrator. Sequence in LLD §4.1."""
 
 from __future__ import annotations
 
@@ -19,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import __version__, psam, pseudohaploid, reporting
+from ..concurrency import output_lock
 from ..errors import PgenSamplebindError
 from ..formats import prepared_input
 from ..merge import merge_inputs
@@ -85,6 +78,12 @@ def run_merge(
     output_paths = {"pgen": out_pgen_path, "pvar": out_pvar_path, "psam": out_psam_path}
 
     with ExitStack() as stack:
+        # Step 3 (LLD §4.1): advisory output-prefix lock. Acquired BEFORE
+        # any input read so a held-lock failure exits 2 without touching
+        # inputs. Released on context exit. NFS/SMB/CIFS triggers a stderr
+        # warning since flock semantics there are advisory-only-on-paper.
+        stack.enter_context(output_lock(output_prefix))
+
         # Step 1: format detection per input via context manager. Target
         # descriptor is marked is_target=True so gate (c) finds it.
         descriptors = [
