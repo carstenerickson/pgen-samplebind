@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pseudohaploid sidecar reader** (closes #2). `merge` and `afs` now honor an optional `<prefix>.pseudohaploid.json` sidecar next to any input. Schema v1 maps `IID → {pseudohaploid: 0|1}`; missing sidecar is silent (current behavior preserved). Precedence: **sidecar > `.psam` PSEUDOHAPLOID column > heterozygosity inference**. The sidecar is written by sibling tools that know per-sample status by methodology (e.g., pileup-aadr's single-BAM `--randomDiploid` output is pseudohaploid by construction); honoring it lets that authoritative signal flow through to the output `.psam` PSEUDOHAPLOID column instead of being re-derived. Under `--on-collision suffix`, overrides correctly follow the input → output IID rename. Orphaned sidecar entries (IIDs not present in the input `.psam`) raise `InvariantViolation` (exit 3). 35 new tests (27 unit covering schema enforcement + suffix tolerance, 8 integration covering merge + afs + target-mode rename + regression).
+
 ### Changed
 
 - **`requires-python = ">=3.11,<3.15"`** — bumped the Python cap from `<3.13` to admit Python 3.13 and 3.14. The previous cap was tied to numpy 1.26's lack of 3.13 support; with the numpy upper bound now at `<3` (admits 2.x), 3.13 and 3.14 work cleanly. Verified with the full 278-test suite on both Python 3.13 + numpy 2.4.4 and Python 3.14 + numpy 2.4.4. CI matrix now runs `[3.11, 3.12, 3.13, 3.14] × [ubuntu, macos]` = 8 cells (up from 4); the release-pipeline smoke-test matrix matches.

@@ -16,6 +16,10 @@ Pseudohaploid adjustment: when PSEUDOHAPLOID column is present in the input
 called allele (not 2) and their genotype value 0/2 contributes 0/1 to the
 ALT count (not 0/2). Allele frequency is unchanged (`n / (2k) == (n/2) / k`)
 but the effective sample size for downstream variance estimates is correct.
+
+When `<prefix>.pseudohaploid.json` sits next to the input, it takes precedence
+over the `.psam` PSEUDOHAPLOID column (upstream tools like pileup-aadr know
+per-sample status by construction). See issue #2.
 """
 
 from __future__ import annotations
@@ -29,8 +33,9 @@ import pandas as pd
 
 from .errors import InvariantViolation, IOFailure
 from .psam import read_psam
+from .pseudohaploid import read_sidecar
 from .pvar import read_pvar
-from .types import InputDescriptor
+from .types import InputDescriptor, PseudohaploidStatus
 
 
 @dataclass(frozen=True)
@@ -96,12 +101,32 @@ def compute_afs(
     n_samples = len(psam)
 
     # Pseudohaploid mask (1 if pseudohaploid, 0 otherwise). Adjust math
-    # accordingly per docstring.
+    # accordingly per docstring. Precedence (issue #2):
+    #   1. `<prefix>.pseudohaploid.json` sidecar (authoritative from upstream)
+    #   2. `.psam` PSEUDOHAPLOID column
+    #   3. default 0 (treat as diploid)
     is_pseudohap_per_sample = np.zeros(n_samples, dtype=np.int8)
-    if adjust_pseudohaploid and "PSEUDOHAPLOID" in psam.columns:
-        is_pseudohap_per_sample = (
-            (psam["PSEUDOHAPLOID"].astype(str) == "1").to_numpy().astype(np.int8)
-        )
+    if adjust_pseudohaploid:
+        if "PSEUDOHAPLOID" in psam.columns:
+            is_pseudohap_per_sample = (
+                (psam["PSEUDOHAPLOID"].astype(str) == "1").to_numpy().astype(np.int8)
+            )
+        sidecar = read_sidecar(descriptor.path)
+        if sidecar is not None:
+            sample_iids = psam["IID"].astype(str).tolist()
+            orphans = sorted(set(sidecar.keys()) - set(sample_iids))
+            if orphans:
+                preview = orphans[:5]
+                tail = f" ... +{len(orphans) - 5} more" if len(orphans) > 5 else ""
+                raise InvariantViolation(
+                    f"pseudohaploid sidecar at {descriptor.path} lists {len(orphans)} "
+                    f"sample(s) not present in {descriptor.psam_path}: {preview}{tail}."
+                )
+            for i, iid in enumerate(sample_iids):
+                status = sidecar.get(iid)
+                if status is None:
+                    continue
+                is_pseudohap_per_sample[i] = 1 if status is PseudohaploidStatus.PSEUDOHAPLOID else 0
 
     # 2. Resolve population subset.
     all_pops = sorted(set(pop_per_sample.tolist()))

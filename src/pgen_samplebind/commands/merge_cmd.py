@@ -9,14 +9,68 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from .. import __version__, psam, pseudohaploid, reporting
 from ..concurrency import output_lock
-from ..errors import PgenSamplebindError
+from ..errors import InvariantViolation, PgenSamplebindError
 from ..formats import prepared_input
 from ..merge import merge_inputs
 from ..pvar import check_max_alleles, count_raw_variants
-from ..types import MergeContext, MergePolicy
+from ..types import (
+    InputDescriptor,
+    MergeContext,
+    MergePolicy,
+    PseudohaploidStatus,
+    SampleIdentityPlan,
+)
+
+
+def _collect_sidecar_overrides(
+    descriptors: list[InputDescriptor],
+    psam_dfs: list[pd.DataFrame],
+    sample_plan: SampleIdentityPlan,
+) -> dict[str, PseudohaploidStatus]:
+    """Walk every input's pseudohaploid sidecar (if present) and produce a
+    flat output-IID → status map.
+
+    Threading semantics: the sidecar files keyed by INPUT IIDs; the merge
+    orchestrator emits OUTPUT IIDs that may have been renamed by the
+    `_target` / `_<input_idx>` suffix scheme under --on-collision suffix.
+    We map input → output via `sample_plan.per_input_output_indices`,
+    skipping samples that the collision plan dropped (keep_mask == False).
+
+    Raises:
+        InvariantViolation: a sidecar carries IIDs not present in its
+            input's .psam — orphaned entries signal upstream/downstream
+            disagreement and shouldn't be silently ignored.
+    """
+    overrides: dict[str, PseudohaploidStatus] = {}
+    for input_idx, (desc, df) in enumerate(zip(descriptors, psam_dfs, strict=True)):
+        sidecar = pseudohaploid.read_sidecar(desc.path)
+        if sidecar is None:
+            continue
+
+        input_iids = df["IID"].astype(str).tolist()
+        input_iid_set = set(input_iids)
+        orphans = sorted(set(sidecar.keys()) - input_iid_set)
+        if orphans:
+            preview = orphans[:5]
+            tail = f" ... +{len(orphans) - 5} more" if len(orphans) > 5 else ""
+            raise InvariantViolation(
+                f"input[{input_idx}] pseudohaploid sidecar at {desc.path} lists "
+                f"{len(orphans)} sample(s) not present in the input .psam: "
+                f"{preview}{tail}. Fix the upstream tool or the .psam to match."
+            )
+
+        keep_mask = sample_plan.per_input_keep_mask[input_idx]
+        out_indices = sample_plan.per_input_output_indices[input_idx]
+        for i, iid in enumerate(input_iids):
+            if not keep_mask[i] or iid not in sidecar:
+                continue
+            out_iid = sample_plan.output_iids[int(out_indices[i])]
+            overrides[out_iid] = sidecar[iid]
+    return overrides
 
 
 def _unlink_output_triplet(*paths: Path) -> None:
@@ -137,6 +191,12 @@ def run_merge(
         # drives the `_target` suffix scheme under --on-collision suffix).
         sample_plan = psam.resolve_sample_identity(psam_dfs, policy, target_idx=target_idx)
 
+        # Step 10b: per-input pseudohaploid sidecar (issue #2). Upstream tools
+        # like pileup-aadr write `<prefix>.pseudohaploid.json` to assert
+        # per-sample status by construction; we map sidecar IIDs through the
+        # collision plan to output IIDs so Step 14 can override classification.
+        sidecar_overrides = _collect_sidecar_overrides(descriptors, psam_dfs, sample_plan)
+
         # Step 11: build MergeContext
         ctx = MergeContext(
             policy=policy,
@@ -175,7 +235,12 @@ def run_merge(
             het_array = np.array([h for _, h, _ in counters.per_sample_het], dtype=np.int64)
             called_array = np.array([c for _, _, c in counters.per_sample_het], dtype=np.int64)
             statuses = pseudohaploid.classify_all(het_array, called_array)
-            merged_psam["PSEUDOHAPLOID"] = [s.value for s in statuses]
+            # Sidecar overrides (issue #2) take precedence over heterozygosity
+            # inference when the upstream tool provided an authoritative status.
+            merged_psam["PSEUDOHAPLOID"] = [
+                sidecar_overrides.get(out_iid, status).value
+                for out_iid, status in zip(sample_plan.output_iids, statuses, strict=True)
+            ]
 
             # Step 15: write .psam
             psam.write_psam(merged_psam, out_psam_path)

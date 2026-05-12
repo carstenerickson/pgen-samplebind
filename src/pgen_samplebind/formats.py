@@ -38,10 +38,12 @@ _KNOWN_SUFFIXES = frozenset(
 )
 
 
-def _strip_known_suffix(prefix: Path) -> Path:
+def strip_known_suffix(prefix: Path) -> Path:
     """If prefix has a recognized PFILE/BFILE/EIGENSTRAT extension, strip it.
 
     Lets users pass either `data` or `data.pgen` and detect identically.
+    Also reused by `pseudohaploid.read_sidecar` to locate the
+    `<base>.pseudohaploid.json` sidecar against either prefix form.
     """
     if prefix.suffix in _KNOWN_SUFFIXES:
         return prefix.with_suffix("")
@@ -58,7 +60,7 @@ def detect_format(prefix: Path) -> InputFormat:
         UsageError: prefix doesn't resolve to any supported triplet, or a
             partial triplet is found (e.g., .pgen exists but .pvar is missing).
     """
-    base = _strip_known_suffix(prefix)
+    base = strip_known_suffix(prefix)
     base_str = str(base)
 
     pgen = Path(base_str + ".pgen")
@@ -403,7 +405,7 @@ def prepared_input(
             plink2 returned non-zero (last 20 lines of stderr surfaced).
     """
     fmt = detect_format(prefix)
-    base = _strip_known_suffix(prefix)
+    base = strip_known_suffix(prefix)
     base_str = str(base)
 
     if fmt is InputFormat.PFILE:
