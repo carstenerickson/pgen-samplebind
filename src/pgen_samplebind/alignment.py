@@ -265,27 +265,31 @@ def build_alignment_table(
 def _tally_actions_to_summary(
     actions: list[str], reasons: list[str | None], summary: AlignmentSummary
 ) -> None:
-    """Update summary action-bucket counts in place."""
-    for action_str in actions:
-        if action_str == MergeAction.PASSTHROUGH.value:
-            summary.n_passthrough += 1
-        elif action_str == MergeAction.REF_ALT_SWAP.value:
-            summary.n_ref_alt_swap += 1
-        elif action_str in (
-            MergeAction.STRAND_FLIP.value,
-            MergeAction.STRAND_FLIP_AND_SWAP.value,
-        ):
-            summary.n_strand_flip += 1
-        elif action_str == MergeAction.DROP.value:
-            summary.n_dropped += 1
-        elif action_str == MergeAction.FILL_MISSING.value:
-            summary.n_fill_missing += 1
-    for reason_str in reasons:
-        if reason_str is not None:
-            reason_enum = DropReason(reason_str)
-            summary.n_dropped_by_reason[reason_enum] = (
-                summary.n_dropped_by_reason.get(reason_enum, 0) + 1
-            )
+    """Update summary action-bucket counts in place.
+
+    Vectorized via pandas.Series.value_counts() — a single C-level scan per
+    column instead of n_variants x n_inputs Python iterations. The bucket
+    increments are O(unique action values), bounded to ~6 per call.
+    """
+    action_counts = pd.Series(actions, dtype="object").value_counts()
+    summary.n_passthrough += int(action_counts.get(MergeAction.PASSTHROUGH.value, 0))
+    summary.n_ref_alt_swap += int(action_counts.get(MergeAction.REF_ALT_SWAP.value, 0))
+    summary.n_strand_flip += int(
+        action_counts.get(MergeAction.STRAND_FLIP.value, 0)
+        + action_counts.get(MergeAction.STRAND_FLIP_AND_SWAP.value, 0)
+    )
+    summary.n_dropped += int(action_counts.get(MergeAction.DROP.value, 0))
+    summary.n_fill_missing += int(action_counts.get(MergeAction.FILL_MISSING.value, 0))
+
+    # reasons may include None for non-DROP actions; value_counts skips NaN
+    # by default. Drop entries pre-cleanup that aren't real DropReason values
+    # (none expected, but defensive).
+    reason_counts = pd.Series(reasons, dtype="object").value_counts(dropna=True)
+    for reason_str, count in reason_counts.items():
+        reason_enum = DropReason(reason_str)
+        summary.n_dropped_by_reason[reason_enum] = summary.n_dropped_by_reason.get(
+            reason_enum, 0
+        ) + int(count)
 
 
 def count_kept_variants(table: pd.DataFrame) -> int:
