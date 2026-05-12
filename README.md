@@ -288,7 +288,7 @@ This is the trust artifact: anyone can clone, run, and verify pgen-samplebind re
 
 ## Status
 
-v0.1.0 — initial release. End-to-end byte-equal qpAdm parity proven against the established `mergeit + plink2 + awk` pipeline on the Track E Phase 7 panel build (Reich-Lab-style ancient-DNA workflow with EIGENSTRAT panel + brit_subset + single-sample target append; md5-identical proximal qpAdm shootout output).
+v0.2.0 — quality-of-life and upstream-integration release. Adds the `<prefix>.pseudohaploid.json` sidecar reader for sibling-tool integration (pileup-aadr), repeatable `--target` for multi-sample append, per-chromosome diagnostic action histogram in `--report-json`, and a live `tqdm` progress bar over the pass-2 genotype stream. End-to-end byte-equal qpAdm parity continues to be proven on every commit against the `mergeit + plink2 + AdmixTools 2` reference pipeline via the AADR-derivative dogfood CI.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations.
 
