@@ -121,15 +121,22 @@ def _iter_blocks_chrom_aware(table: pd.DataFrame, block_size: int) -> Iterator[t
         start = end
 
 
-def _swap_genotypes_in_place(buf_row: np.ndarray[Any, Any]) -> None:
-    """Apply x → 2-x to a single variant row, preserving -9 missing.
+def _swap_genotypes_in_rows(buf: np.ndarray[Any, Any], row_mask: np.ndarray[Any, Any]) -> None:
+    """Apply x → 2-x to all variant rows selected by `row_mask`, preserving
+    -9 missing. Single vectorized pass over the masked slice; replaces the
+    v0.1 per-row Python loop that called `_swap_genotypes_in_place` once
+    per row needing the swap.
 
     REF_ALT_SWAP and STRAND_FLIP_AND_SWAP both reduce to this single op
     on hardcalls (LLD §2.1 action-collapse pin: strand-flip alone is
     metadata-only on biallelic SNPs).
     """
-    not_missing = buf_row != -9
-    buf_row[not_missing] = 2 - buf_row[not_missing]
+    if not row_mask.any():
+        return
+    sub = buf[row_mask]
+    not_missing = sub != -9
+    sub[not_missing] = 2 - sub[not_missing]
+    buf[row_mask] = sub
 
 
 def _write_pvar_tsv(kept_table: pd.DataFrame, out_pvar_path: Path) -> None:
@@ -222,22 +229,26 @@ def _apply_actions_and_place(
     actions = block_alignment[f"action_input_{input_idx}"].to_numpy(dtype=object)
     actions_subset = actions[needs_read]
 
-    # REF_ALT_SWAP and STRAND_FLIP_AND_SWAP both swap; STRAND_FLIP and PASSTHROUGH
-    # are identity (LLD §2.1 action-collapse).
+    # v0.3: vectorize both inner loops.
+    # (1) Swap recoding (REF_ALT_SWAP / STRAND_FLIP_AND_SWAP both reduce to
+    #     x → 2-x on hardcalls; STRAND_FLIP and PASSTHROUGH are identity).
+    #     Single masked numpy pass over the swap rows.
     swap_mask = (actions_subset == MergeAction.REF_ALT_SWAP.value) | (
         actions_subset == MergeAction.STRAND_FLIP_AND_SWAP.value
     )
-    if swap_mask.any():
-        for i in np.where(swap_mask)[0]:
-            _swap_genotypes_in_place(read_buf[i])
+    _swap_genotypes_in_rows(read_buf, swap_mask)
 
-    # Apply sample plan: keep mask + place into output positions
+    # (2) Sample-plan placement: write each read row to its block-relative
+    #     position in output_buf, restricted to kept samples. Single
+    #     advanced-index assignment via np.ix_; replaces the v0.1 per-row
+    #     Python for-loop over block_rows_with_read (~2048 iterations per
+    #     block, per input).
     kept_samples = read_buf[:, keep_mask]
     kept_out_indices = out_indices[keep_mask]
     block_rows_with_read = np.where(needs_read)[0]
-
-    for write_idx, source_row in enumerate(block_rows_with_read):
-        output_buf[source_row, kept_out_indices] = kept_samples[write_idx]
+    if block_rows_with_read.size == 0:
+        return
+    output_buf[np.ix_(block_rows_with_read, kept_out_indices)] = kept_samples
 
 
 def merge_inputs(
