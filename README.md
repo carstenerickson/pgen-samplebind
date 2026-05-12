@@ -285,7 +285,7 @@ This is the trust artifact: anyone can clone, run, and verify pgen-samplebind re
 
 ## Status
 
-v0.2.0 — quality-of-life and upstream-integration release. Adds the `<prefix>.pseudohaploid.json` sidecar reader for sibling-tool integration (pileup-aadr), repeatable `--target` for multi-sample append, per-chromosome diagnostic action histogram in `--report-json`, and a live `tqdm` progress bar over the pass-2 genotype stream. End-to-end byte-equal qpAdm parity continues to be proven on every commit against the `mergeit + plink2 + AdmixTools 2` reference pipeline via the AADR-derivative dogfood CI.
+v0.3.0 — performance + cleanup release. Five vectorizations across the merge hot path (pass-1 alignment truth-table lookup, pass-2 block placement, chromosome-cast, duplicate-key check, action histogram) cut Python-level loops from the long poles; estimated 20-40% wallclock reduction at 1240k scale. Drops the never-implemented `--threads` flag. End-to-end byte-equal qpAdm parity continues to be proven on every commit against the `mergeit + plink2 + AdmixTools 2` reference pipeline via the AADR-derivative dogfood CI.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations.
 

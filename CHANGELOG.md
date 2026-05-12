@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-12
+
+Performance + cleanup release. The v0.1/v0.2 implementation had several Python-level loops in the merge hot path that didn't scale well past 1240k variants. v0.3 vectorizes the five biggest, cutting end-to-end wallclock by an estimated 20-40% at 1240k scale.
+
+### Performance
+
+- **Vectorize `build_alignment_table`'s per-row classification loop** (pole #1; biggest long pole). Replaced the per-(variant × non-canonical-input) Python loop over `_classify_per_input_action` + `_apply_on_missing_policy` + `_apply_on_mismatch_policy` (~2.4M Python iterations at 1240k × 2 inputs) with a single numpy advanced-index lookup against a precomputed `(4, 4, 5, 5)` truth-table. The table is generated at module load time by calling `resolve_alleles` on every ACGT case (256 cases × 2 trust_strand settings = 512 total), so semantic parity is by construction. Policy errors (`--on-missing error` / `--on-mismatch error`) raise the same `InvariantViolation` messages, vectorized. Expected speedup: 10-50× on the pass-1 classification step. Helpers `_classify_per_input_action`, `_apply_on_missing_policy`, `_apply_on_mismatch_policy` removed (no external callers).
+- **Vectorize `_apply_actions_and_place` pass-2 inner loops** (pole #2). Two per-block Python loops collapsed: (a) swap recoding now uses a single masked `2 - read_buf[swap_mask]` with -9 preservation instead of per-row `_swap_genotypes_in_place` calls; (b) sample-plan placement uses a single `output_buf[np.ix_(block_rows_with_read, kept_out_indices)] = kept_samples` instead of per-row advanced-index assignment. At default block_size=2048 × ~600 blocks × N inputs, the v0.1 path was ~2.4M Python iterations; v0.3 path is ~600 numpy operations. Byte-equality with the mergeit reference preserved (verified via the `dogfood_full` qpAdm parity test).
+- **Vectorize `normalize_chrom` chromosome cast** (pole #3). New `pvar.normalize_chrom_series(s)` does the strip-`chr` + ACGT/letter/numeric classification + range-check in a single C-level pandas pass. Routed `pvar.read_pvar` and `formats._convert_ascii_eigenstrat` through it; scalar `normalize_chrom` retained for the existing 11-test contract. 13 new unit tests including a byte-equality assertion vs the scalar `.map()` path. Expected: ~5-10× on the cast step.
+- **Vectorize `validate_unique_keys` duplicate-check** (pole #4). Single `pd.DataFrame.duplicated()` scan replaces the n_variants-step Python set/loop. ~5-10× on the check; same `InvariantViolation` message with first-duplicate key.
+- **Vectorize `_tally_actions_to_summary`** (pole #5). Per-input action / reason buckets now derive from `pd.Series.value_counts()` in O(unique values) bucket increments instead of n_variants × N Python iterations. ~10-50× on the tally step.
+
+CI perf benchmark gate (HLD test 18) will catch any regression below 80% of the recorded baseline on the next run; expected the new measurement will set up headroom for a baseline bump in a future release.
+
+### Removed
+
+- **`--threads N` flag and `MergePolicy.threads` field.** The flag was wired but never consumed in v0.1/v0.2; any user passing it got the same single-threaded merge regardless of value. Per the v0.3 threading survey, pgenlib reads are only ~1% of wallclock so threading them wouldn't move the needle; the actual hot paths (now vectorized above) lived in our own Python loops. Technically a CLI-surface break, but the flag was a no-op, so no user behavior changes. If real per-input-parallelism demand appears later, orchestrator-level parallel `prepared_input` (parallel plink2 shell-outs for multi-EIGENSTRAT inputs) is the natural re-entry point.
+
 ## [0.2.0] - 2026-05-12
 
 Quality-of-life and upstream-integration release. Four feature areas plus broadened dependency support: pseudohaploid sidecar reader for sibling-tool integration, repeatable `--target`, per-chromosome diagnostic histogram, and a live progress bar during the pass-2 genotype stream.
@@ -92,6 +110,7 @@ Initial public release. The missing `plink2 --pmerge` non-concatenating case for
 - BFILE-only output not supported (use `plink2 --pfile out --make-bed` if needed).
 - EIGENSTRAT/BFILE input requires `plink2 v2.0.0-a.7.1+` on PATH (the `--eigfile`/`--make-pgen` path); pure-PFILE workflows have no plink2 dependency.
 
-[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/carstenerickson/pgen-samplebind/releases/tag/v0.1.0
