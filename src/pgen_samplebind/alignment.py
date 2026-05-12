@@ -7,6 +7,7 @@ will do (`merge.merge_inputs`) and what reports will say (`reporting.write_repor
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -96,74 +97,128 @@ def _key_set(df: pd.DataFrame, variant_key: str) -> set[tuple[int, int] | str]:
     return set(df["id"].tolist())
 
 
-def _classify_per_input_action(
-    c_ref: str,
-    c_alt: str,
-    o_ref: object,
-    o_alt: object,
+# v0.3: precomputed truth-table lookups replace the per-row Python loop.
+# Each of the 4 nucleotides plus a "missing/non-ACGT" code maps to an
+# integer 0..4, and the 4D `(c_ref, c_alt, o_ref, o_alt)` index picks the
+# action + reason from a precomputed (4, 4, 5, 5) object array. Two
+# tables — one per trust_strand setting — are built at module load time
+# by calling resolve_alleles on every ACGT case (256 cases each).
+_NUC_TO_CODE: dict[str, int] = {"A": 0, "C": 1, "G": 2, "T": 3}
+_NUCS = ("A", "C", "G", "T")
+_OTHER_NON_ACGT_CODE = 4  # any non-ACGT or NaN cell in `merged`
+
+
+def _build_classify_lookup(
     trust_strand: bool,
-) -> tuple[MergeAction, DropReason | None]:
-    """Per-row classification handling the missing-in-other case.
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    """Build (action_table, reason_table) of shape (4, 4, 5, 5), object dtype.
 
-    Returns the *raw* action — policy-error gating is applied by the caller.
-
-    Detects "missing in other" by checking the dtype of the merge cell: after
-    pandas left-join on an object-dtype string column, missing rows have NaN
-    (a float). Concretely: anything not a `str` is treated as missing.
+    Canonical (axes 0, 1) is always ACGT (4 values) — `pvar.read_pvar`
+    guarantees this via the biallelic-SNP filter. Other (axes 2, 3) admits
+    a 5th "non-ACGT or missing" code which is force-mapped to
+    `DROP / ALLELE_MISMATCH`; the orchestrator overrides actual-NaN rows to
+    `FILL_MISSING` after the lookup.
     """
-    if not isinstance(o_ref, str) or not isinstance(o_alt, str):
-        return MergeAction.FILL_MISSING, None
-    return resolve_alleles(c_ref, c_alt, o_ref, o_alt, trust_strand)
+    action_table = np.empty((4, 4, 5, 5), dtype=object)
+    reason_table = np.empty((4, 4, 5, 5), dtype=object)
+    for ci, c_ref in enumerate(_NUCS):
+        for ai, c_alt in enumerate(_NUCS):
+            for oi, o_ref in enumerate(_NUCS):
+                for ali, o_alt in enumerate(_NUCS):
+                    action, reason = resolve_alleles(c_ref, c_alt, o_ref, o_alt, trust_strand)
+                    action_table[ci, ai, oi, ali] = action.value
+                    reason_table[ci, ai, oi, ali] = reason.value if reason else None
+            # Non-ACGT other_ref → ALLELE_MISMATCH regardless of other_alt.
+            action_table[ci, ai, _OTHER_NON_ACGT_CODE, :] = MergeAction.DROP.value
+            reason_table[ci, ai, _OTHER_NON_ACGT_CODE, :] = DropReason.ALLELE_MISMATCH.value
+            # Non-ACGT other_alt → ALLELE_MISMATCH regardless of other_ref.
+            action_table[ci, ai, :, _OTHER_NON_ACGT_CODE] = MergeAction.DROP.value
+            reason_table[ci, ai, :, _OTHER_NON_ACGT_CODE] = DropReason.ALLELE_MISMATCH.value
+    return action_table, reason_table
 
 
-def _apply_on_missing_policy(
-    raw_action: MergeAction,
-    raw_reason: DropReason | None,
+_LOOKUP_TRUST = _build_classify_lookup(trust_strand=True)
+_LOOKUP_NOTRUST = _build_classify_lookup(trust_strand=False)
+
+
+def _classify_block_vectorized(
+    merged: pd.DataFrame,
     policy: MergePolicy,
     soften_policy_errors: bool,
     triggers: dict[str, int],
     input_idx: int,
-) -> tuple[MergeAction, DropReason | None]:
-    """For FILL_MISSING raw actions, apply --on-missing policy."""
-    if raw_action != MergeAction.FILL_MISSING:
-        return raw_action, raw_reason
-    if policy.on_missing == "fill_missing":
-        return MergeAction.FILL_MISSING, None
-    if policy.on_missing == "drop_variant":
-        return MergeAction.DROP, DropReason.ON_MISSING_DROP_VARIANT
-    # error
-    if soften_policy_errors:
-        triggers["on_missing_count"] += 1
-        return MergeAction.FILL_MISSING, None
-    raise InvariantViolation(
-        f"--on-missing error: variant absent in input[{input_idx}]. "
-        f"Use --on-missing fill_missing (default; -9 for absent samples) or "
-        f"drop_variant (drop the variant from output) to allow merge to proceed."
-    )
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    """Vectorized per-row classification + policy application.
 
+    Returns (actions, reasons) as object-dtype numpy arrays of length len(merged).
+    Equivalent to the v0.1 per-row loop over `_classify_per_input_action` +
+    `_apply_on_missing_policy` + `_apply_on_mismatch_policy`, but in a single
+    pandas/numpy pass.
 
-def _apply_on_mismatch_policy(
-    raw_action: MergeAction,
-    raw_reason: DropReason | None,
-    policy: MergePolicy,
-    soften_policy_errors: bool,
-    triggers: dict[str, int],
-    input_idx: int,
-) -> tuple[MergeAction, DropReason | None]:
-    """For DROP/ALLELE_MISMATCH raw actions, apply --on-mismatch policy."""
-    if raw_action != MergeAction.DROP or raw_reason != DropReason.ALLELE_MISMATCH:
-        return raw_action, raw_reason
-    if policy.on_mismatch == "drop":
-        return raw_action, raw_reason
-    # error
-    if soften_policy_errors:
-        triggers["on_mismatch_count"] += 1
-        return raw_action, raw_reason
-    raise InvariantViolation(
-        f"--on-mismatch error: allele mismatch at variant in input[{input_idx}]. "
-        f"Use --on-mismatch drop (default; drop mismatched variants) to allow "
-        f"merge to proceed; the per-variant report (--report PATH) details which."
+    Raises the same InvariantViolation messages on `--on-missing error` /
+    `--on-mismatch error` when not softened.
+    """
+    action_table, reason_table = _LOOKUP_TRUST if policy.trust_strand else _LOOKUP_NOTRUST
+
+    # "Other missing" = pandas-join produced NaN (variant absent in other_pvar).
+    other_missing_mask = (merged["_other_ref"].isna() | merged["_other_alt"].isna()).to_numpy()
+
+    # Map each allele column to a code; non-ACGT (including NaN) → 4.
+    def _to_codes(s: pd.Series) -> np.ndarray[Any, Any]:
+        return s.map(_NUC_TO_CODE).fillna(_OTHER_NON_ACGT_CODE).astype("int8").to_numpy()
+
+    c_ref_codes = _to_codes(merged["ref"])
+    c_alt_codes = _to_codes(merged["alt"])
+    o_ref_codes = _to_codes(merged["_other_ref"])
+    o_alt_codes = _to_codes(merged["_other_alt"])
+
+    # Single 4D advanced-index lookup against the precomputed tables.
+    actions: np.ndarray[Any, Any] = action_table[
+        c_ref_codes, c_alt_codes, o_ref_codes, o_alt_codes
+    ].copy()
+    reasons: np.ndarray[Any, Any] = reason_table[
+        c_ref_codes, c_alt_codes, o_ref_codes, o_alt_codes
+    ].copy()
+
+    # Precedence: "other missing" overrides the lookup-derived
+    # ALLELE_MISMATCH with FILL_MISSING (matches v0.1 _classify_per_input_action
+    # semantics — pandas-NaN takes priority over the truth table).
+    actions[other_missing_mask] = MergeAction.FILL_MISSING.value
+    reasons[other_missing_mask] = None
+
+    # --on-missing policy on the FILL_MISSING rows.
+    fill_missing_mask = actions == MergeAction.FILL_MISSING.value
+    if fill_missing_mask.any():
+        if policy.on_missing == "drop_variant":
+            actions[fill_missing_mask] = MergeAction.DROP.value
+            reasons[fill_missing_mask] = DropReason.ON_MISSING_DROP_VARIANT.value
+        elif policy.on_missing == "error":
+            count = int(fill_missing_mask.sum())
+            if soften_policy_errors:
+                triggers["on_missing_count"] += count
+            else:
+                raise InvariantViolation(
+                    f"--on-missing error: variant absent in input[{input_idx}]. "
+                    f"Use --on-missing fill_missing (default; -9 for absent samples) or "
+                    f"drop_variant (drop the variant from output) to allow merge to proceed."
+                )
+
+    # --on-mismatch policy on the ALLELE_MISMATCH rows.
+    mismatch_mask = (actions == MergeAction.DROP.value) & (
+        reasons == DropReason.ALLELE_MISMATCH.value
     )
+    if mismatch_mask.any() and policy.on_mismatch == "error":
+        count = int(mismatch_mask.sum())
+        if soften_policy_errors:
+            triggers["on_mismatch_count"] += count
+        else:
+            raise InvariantViolation(
+                f"--on-mismatch error: allele mismatch at variant in input[{input_idx}]. "
+                f"Use --on-mismatch drop (default; drop mismatched variants) to allow "
+                f"merge to proceed; the per-variant report (--report PATH) details which."
+            )
+
+    return actions, reasons
 
 
 def build_alignment_table(
@@ -209,23 +264,9 @@ def build_alignment_table(
             how="left",
         )
 
-        actions: list[str] = []
-        reasons: list[str | None] = []
-
-        for c_ref, c_alt, o_ref, o_alt in zip(
-            merged["ref"], merged["alt"], merged["_other_ref"], merged["_other_alt"], strict=True
-        ):
-            raw_action, raw_reason = _classify_per_input_action(
-                c_ref, c_alt, o_ref, o_alt, policy.trust_strand
-            )
-            action, reason = _apply_on_missing_policy(
-                raw_action, raw_reason, policy, soften_policy_errors, triggers, input_idx
-            )
-            action, reason = _apply_on_mismatch_policy(
-                action, reason, policy, soften_policy_errors, triggers, input_idx
-            )
-            actions.append(action.value)
-            reasons.append(reason.value if reason is not None else None)
+        actions, reasons = _classify_block_vectorized(
+            merged, policy, soften_policy_errors, triggers, input_idx
+        )
 
         table[f"action_input_{input_idx}"] = pd.Categorical(actions, categories=action_categories)
         table[f"drop_reason_input_{input_idx}"] = pd.Categorical(
@@ -263,7 +304,9 @@ def build_alignment_table(
 
 
 def _tally_actions_to_summary(
-    actions: list[str], reasons: list[str | None], summary: AlignmentSummary
+    actions: np.ndarray[Any, Any] | list[str],
+    reasons: np.ndarray[Any, Any] | list[str | None],
+    summary: AlignmentSummary,
 ) -> None:
     """Update summary action-bucket counts in place.
 
