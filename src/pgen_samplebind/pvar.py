@@ -14,11 +14,20 @@ from .errors import InvariantViolation, IOFailure
 _VALID_NUCLEOTIDES = frozenset({"A", "C", "G", "T"})
 
 
+# Letter → int mapping shared by scalar and vectorized normalizers.
+_CHROM_LETTER_MAP: dict[str, int] = {"X": 23, "Y": 24, "MT": 26, "M": 26}
+
+
 def normalize_chrom(s: str | int) -> int:
     """Chromosome string → int per HLD §Variant alignment.
 
     1-22 numeric, X/chrX/23 → 23, Y/chrY/24 → 24, MT/chrMT/chrM/26 → 26.
     `chr` prefix stripped if present.
+
+    Scalar variant. For hot-path bulk normalization (read_pvar at 1240k
+    scale, ASCII-EIGENSTRAT loader), call `normalize_chrom_series` against
+    the Series directly — the pandas `.map(normalize_chrom)` path is a
+    per-cell Python apply and is ~5-10x slower at scale.
 
     Raises:
         InvariantViolation: unparseable string.
@@ -36,13 +45,51 @@ def normalize_chrom(s: str | int) -> int:
         if 1 <= n <= 26:
             return n
         raise InvariantViolation(f"chromosome integer out of range 1-26: {raw}")
-    if raw_upper == "X":
-        return 23
-    if raw_upper == "Y":
-        return 24
-    if raw_upper in {"MT", "M"}:
-        return 26
+    if raw_upper in _CHROM_LETTER_MAP:
+        return _CHROM_LETTER_MAP[raw_upper]
     raise InvariantViolation(f"unparseable chromosome string: {s!r}")
+
+
+def normalize_chrom_series(s: pd.Series) -> pd.Series:
+    """Vectorized chromosome normalization for the read_pvar / ASCII-EIGENSTRAT
+    hot paths.
+
+    Same semantics as `normalize_chrom` but in a single C-level pandas pass:
+    - Strip optional `chr` prefix (case-insensitive).
+    - Numeric values in [1, 26] pass through.
+    - X/Y/MT/M (case-insensitive) map to 23 / 24 / 26 / 26.
+    - Anything else raises `InvariantViolation` naming the first offender.
+
+    Returns an int8 Series. ~5-10x faster than `.map(normalize_chrom)` at
+    1240k scale because the per-cell Python overhead is removed.
+    """
+    raw = s.astype(str).str.strip()
+    # Case-insensitive `chr` prefix strip (handles chr/CHR/Chr/cHr).
+    no_prefix = raw.str.replace(r"(?i)^chr", "", regex=True, n=1)
+    upper = no_prefix.str.upper()
+
+    numeric_mask = upper.str.fullmatch(r"\d+", na=False)
+    letter_mask = upper.isin(_CHROM_LETTER_MAP.keys())
+    unknown_mask = ~(numeric_mask | letter_mask)
+    if unknown_mask.any():
+        first_bad = s.loc[unknown_mask].iloc[0]
+        raise InvariantViolation(f"unparseable chromosome string: {first_bad!r}")
+
+    out = pd.Series(0, index=s.index, dtype="int64")
+    if numeric_mask.any():
+        out.loc[numeric_mask] = upper.loc[numeric_mask].astype("int64")
+    if letter_mask.any():
+        out.loc[letter_mask] = upper.loc[letter_mask].map(_CHROM_LETTER_MAP).astype("int64")
+
+    out_of_range = (out < 1) | (out > 26)
+    if out_of_range.any():
+        first_idx = out.loc[out_of_range].index[0]
+        raw_val = s.loc[first_idx]
+        raise InvariantViolation(
+            f"chromosome integer out of range 1-26: {int(out.loc[first_idx])} (from {raw_val!r})"
+        )
+
+    return out.astype("int8")
 
 
 def count_raw_variants(path: Path) -> int:
@@ -123,7 +170,7 @@ def read_pvar(path: Path) -> pd.DataFrame:
     df = df.loc[is_biallelic_snp].copy()
 
     # Normalize chrom to int8; pos to int64; uppercase REF/ALT.
-    df["CHROM"] = df["CHROM"].map(normalize_chrom).astype("int8")
+    df["CHROM"] = normalize_chrom_series(df["CHROM"])
     df["POS"] = df["POS"].astype("int64")
     df["REF"] = df["REF"].str.upper()
     df["ALT"] = df["ALT"].str.upper()

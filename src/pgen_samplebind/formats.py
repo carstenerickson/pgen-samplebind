@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from .errors import IOFailure, UsageError
-from .pvar import normalize_chrom
+from .pvar import normalize_chrom_series
 from .types import InputDescriptor, InputFormat
 
 # Tempdir prefix used for both EIGENSTRAT and BFILE pre-conversion.
@@ -307,7 +307,7 @@ def _convert_ascii_eigenstrat(
     n_variants_raw = len(snp_df)
 
     # Normalize chromosome ints, then apply autosome filter via include_chrom.
-    snp_df["CHROM"] = snp_df["CHROM_RAW"].map(normalize_chrom).astype("int8")
+    snp_df["CHROM"] = normalize_chrom_series(snp_df["CHROM_RAW"])
     keep_mask = snp_df["CHROM"].isin(include_chrom).to_numpy()
     snp_kept = snp_df.loc[keep_mask].copy()
     n_variants = len(snp_kept)
