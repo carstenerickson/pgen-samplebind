@@ -122,7 +122,6 @@ Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion 
 | `--report-json PATH` | none | Run-level summary JSON (~few KB; rows excluded by default) |
 | `--report-json-include-rows` | off | Include per-variant rows in JSON (buffered; warns at >100 MB predicted size) |
 | `--quiet` | off | Suppress progress to stdout |
-| `--threads N` | `1` | Parallel input readers |
 | `--block-size N` | `2048` | Variants per pgenlib read block |
 
 ### `validate` — check alignment without writing
@@ -219,9 +218,7 @@ The lock prevents two concurrent invocations from corrupting each other's output
 
 ## Performance
 
-Expected throughput ~25-30 M genotypes/sec end-to-end on a typical Linux x86_64 machine (one core, default `--block-size 2048`). For a 700-sample × 1.15M-variant 1240k panel, plan on roughly 30-60 seconds wallclock including pass-1 alignment, pass-2 genotype rewrite, and `.psam` finalization.
-
-`--threads N` parallelizes per-input readers; useful when binding 4+ inputs. Beyond N=4 the gains taper since pass 2 is single-writer-bound.
+Expected throughput ~25-30 M genotypes/sec end-to-end on a typical Linux x86_64 machine (one core, default `--block-size 2048`). For a 700-sample × 1.15M-variant 1240k panel, plan on roughly 30-60 seconds wallclock including pass-1 alignment, pass-2 genotype rewrite, and `.psam` finalization. The v0.3 vectorization pass cut Python-level loops from the hot paths; the perf benchmark in CI gates against regression below 80% of the recorded baseline.
 
 ## Troubleshooting
 

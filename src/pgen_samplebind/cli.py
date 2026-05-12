@@ -151,7 +151,6 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
     ">100 MB predicted size; prefer --report TSV for streaming at scale).",
 )
 @click.option("--quiet", is_flag=True, default=False, help="Suppress progress to stdout.")
-@click.option("--threads", type=int, default=1, help="Parallel input readers (default: 1).")
 @click.option(
     "--block-size",
     type=int,
@@ -180,7 +179,6 @@ def merge_command(
     report_json_path: Path | None,
     report_json_include_rows: bool,
     quiet: bool,
-    threads: int,
     block_size: int,
 ) -> None:
     """Bind inputs into one output PFILE."""
@@ -196,7 +194,6 @@ def merge_command(
         validate_strand_fail_pct=validate_strand_fail_pct,
         population_column=population_column,
         id_column=id_column,
-        threads=threads,
         block_size=block_size,
         report_json_include_rows=report_json_include_rows,
     )

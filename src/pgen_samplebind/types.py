@@ -121,7 +121,6 @@ class MergePolicy:
     include_chrom: tuple[int, ...] = tuple(range(1, 23))
     population_column: str | None = None
     id_column: str = "IID"
-    threads: int = 1
     block_size: int = 2048
     extras_warn_threshold: float = 0.10
     validate_strand_fail_pct: float = 10.0
