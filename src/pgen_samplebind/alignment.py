@@ -413,6 +413,10 @@ def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
     Sums per-input action counts across all non-canonical inputs.
     All 8 keys always present (zero-valued if no variants matched) so the
     JSON schema stays stable for workflow consumers regardless of outcome.
+
+    For per-chromosome breakdown (diagnostic for chr-specific
+    strand-artifact or build-mismatch concentrations), see
+    `build_action_histogram_per_chrom`.
     """
     histogram: dict[str, int] = {
         "passthrough": 0,
@@ -458,3 +462,31 @@ def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
             histogram["drop"] += int((reasons == DropReason.ON_MISSING_DROP_VARIANT.value).sum())
 
     return histogram
+
+
+def build_action_histogram_per_chrom(
+    alignment_table: pd.DataFrame,
+) -> dict[int, dict[str, int]]:
+    """Per-chromosome 8-key action histogram. Same key contract as
+    `build_action_histogram`; bucketed by the canonical `chrom` column.
+
+    Diagnostic for chr-specific drop concentrations that the global
+    histogram averages out: e.g., chr 6 at 20% ambiguous-strand drops
+    when the autosome average is 5% signals an HLA-region strand
+    artifact; chr 22 at 80% allele_mismatch likely means hg19/hg38
+    coordinate disagreement in one source.
+
+    Returns int-keyed (chrom 1-22) dict of the same 8-key histograms.
+    Only chromosomes actually present in the alignment table appear;
+    JSON consumers stringify the int keys.
+    """
+    if alignment_table.empty:
+        return {}
+    out: dict[int, dict[str, int]] = {}
+    for chrom, group in alignment_table.groupby("chrom", sort=True):
+        # groupby key is the cell value (int8 in the canonical pvar schema);
+        # cast through numpy's item() since pandas' Hashable type isn't a
+        # SupportsInt for mypy strict.
+        chrom_int = int(chrom.item()) if hasattr(chrom, "item") else int(chrom)  # type: ignore[arg-type]
+        out[chrom_int] = build_action_histogram(group)
+    return out

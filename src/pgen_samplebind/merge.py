@@ -27,6 +27,7 @@ import pandas as pd
 from . import pseudohaploid, pvar, reporting
 from .alignment import (
     build_action_histogram,
+    build_action_histogram_per_chrom,
     build_alignment_table,
     compute_intersection_size,
     evaluate_pass1_gates,
@@ -392,6 +393,7 @@ def merge_inputs(
 
     return MergeCounters(
         action_histogram=build_action_histogram(alignment_table),
+        action_histogram_per_chrom=build_action_histogram_per_chrom(alignment_table),
         intersection_size=compute_intersection_size(alignment_table),
         extras_count=summary.n_extras_dropped,
         per_sample_het=per_sample_het,

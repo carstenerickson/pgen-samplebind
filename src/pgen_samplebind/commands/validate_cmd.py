@@ -16,6 +16,7 @@ from pathlib import Path
 from .. import __version__, psam, pvar, reporting
 from ..alignment import (
     build_action_histogram,
+    build_action_histogram_per_chrom,
     build_alignment_table,
     compute_intersection_size,
     count_kept_variants,
@@ -120,6 +121,7 @@ def run_validate(
         )
         counters = MergeCounters(
             action_histogram=build_action_histogram(alignment_table),
+            action_histogram_per_chrom=build_action_histogram_per_chrom(alignment_table),
             intersection_size=compute_intersection_size(alignment_table),
             extras_count=summary.n_extras_dropped,
             per_sample_het=[],  # no pass 2

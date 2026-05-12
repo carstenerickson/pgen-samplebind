@@ -161,6 +161,19 @@ class TestMergeReportJsonSummaryOnly:
         }
         assert set(payload["alignment"]["action_histogram"].keys()) == expected
 
+        # v0.2: per-chrom 8-key breakdown also serialized. JSON keys are strings
+        # (chrom ints stringified); each per-chrom value carries the same 8 keys
+        # as the global histogram; per-chrom sums equal the global counts.
+        per_chrom = payload["alignment"]["action_histogram_per_chrom"]
+        assert isinstance(per_chrom, dict)
+        assert all(k.isdigit() for k in per_chrom)  # chrom keys stringified
+        assert all(set(v.keys()) == expected for v in per_chrom.values())
+        for key in expected:
+            per_chrom_sum = sum(v[key] for v in per_chrom.values())
+            assert per_chrom_sum == payload["alignment"]["action_histogram"][key], (
+                f"per_chrom sum != global for {key}"
+            )
+
 
 class TestMergeReportJsonIncludeRows:
     """HLD test 22 case (ii): --report-json-include-rows adds variants array."""

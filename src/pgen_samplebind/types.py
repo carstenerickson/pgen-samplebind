@@ -262,6 +262,7 @@ class MergeCounters:
     """
 
     action_histogram: dict[str, int] = field(default_factory=dict)
+    action_histogram_per_chrom: dict[int, dict[str, int]] = field(default_factory=dict)
     intersection_size: int = 0
     extras_count: int = 0
     per_sample_het: list[tuple[str, int, int]] = field(default_factory=list)

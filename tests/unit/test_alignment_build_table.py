@@ -19,6 +19,7 @@ import pytest
 
 from pgen_samplebind.alignment import (
     build_action_histogram,
+    build_action_histogram_per_chrom,
     build_alignment_table,
     compute_intersection_size,
     count_kept_variants,
@@ -214,6 +215,58 @@ class TestBuildActionHistogram:
         # Other dropped_* buckets should be 0 for this case
         assert hist["dropped_ambiguous_strand"] == 0
         assert hist["dropped_allele_mismatch"] == 0
+
+
+class TestBuildActionHistogramPerChrom:
+    """Per-chromosome 8-key breakdown (v0.2)."""
+
+    def test_only_present_chroms_appear(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        canonical = _pvar_df(
+            [1, 1, 6, 22], [100, 200, 300, 400], list("abcd"), list("ACAA"), list("GTGG")
+        )
+        table = build_alignment_table(canonical, [canonical.copy()], policy, summary)
+        per_chrom = build_action_histogram_per_chrom(table)
+        assert set(per_chrom.keys()) == {1, 6, 22}
+
+    def test_per_chrom_sums_to_global_histogram(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        """Sanity: summing each key across all chroms must reproduce the
+        global `action_histogram`."""
+        canonical = _pvar_df(
+            [1, 1, 6, 22], [100, 200, 300, 400], list("abcd"), list("ACAA"), list("GTGG")
+        )
+        table = build_alignment_table(canonical, [canonical.copy()], policy, summary)
+        global_hist = build_action_histogram(table)
+        per_chrom = build_action_histogram_per_chrom(table)
+        for key in global_hist:
+            per_chrom_sum = sum(h[key] for h in per_chrom.values())
+            assert per_chrom_sum == global_hist[key], f"key={key} mismatch"
+
+    def test_concentrates_drops_on_correct_chrom(
+        self, policy: MergePolicy, summary: AlignmentSummary
+    ) -> None:
+        """A drop on chr 6 only must surface in per_chrom[6], not on other chroms.
+        This is the motivating diagnostic: HLA-region drops localized to chr 6
+        shouldn't average out into the global histogram."""
+        # Canonical: chr 1 + chr 6 each have a variant. Other input has only chr 1.
+        # With on_missing=drop_variant, chr 6 variant gets dropped on the OTHER side.
+        canonical = _pvar_df([1, 6], [100, 200], ["a", "b"], ["A", "A"], ["G", "G"])
+        other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
+        modified = replace(policy, on_missing="drop_variant")
+        table = build_alignment_table(canonical, [other], modified, summary)
+        per_chrom = build_action_histogram_per_chrom(table)
+        assert per_chrom[1]["passthrough"] == 1
+        assert per_chrom[1]["drop"] == 0
+        assert per_chrom[6]["drop"] == 1
+        assert per_chrom[6]["passthrough"] == 0
+
+    def test_empty_table_returns_empty_dict(self) -> None:
+        # Defensive: validate_cmd may produce an empty table on pre-filter failure.
+        empty = pd.DataFrame({"chrom": pd.Series(dtype="int8"), "pos": pd.Series(dtype="int64")})
+        assert build_action_histogram_per_chrom(empty) == {}
 
 
 class TestUniqueKeyValidation:

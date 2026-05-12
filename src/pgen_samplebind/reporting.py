@@ -312,6 +312,14 @@ def write_report_json(
         },
         "alignment": {
             "action_histogram": dict(counters.action_histogram),
+            # Per-chromosome 8-key breakdown. JSON object keys must be strings,
+            # so stringify the chrom int. Consumers read with `int(k)`. See
+            # CHANGELOG v0.2 — adds diagnostic for chr-specific drop concentrations
+            # (HLA strand artifacts, hg19/hg38 build mismatches, etc.).
+            "action_histogram_per_chrom": {
+                str(chrom): dict(hist)
+                for chrom, hist in counters.action_histogram_per_chrom.items()
+            },
             "intersection_size": int(counters.intersection_size),
             "extras_count": int(counters.extras_count),
         },
