@@ -376,13 +376,16 @@ def merge_inputs(
     ]
 
     # ----- Gate (c): target call rate -----
-    # Per HLD §Exit-1 validation gates (c): the target's call rate (non-missing
+    # Per HLD §Exit-1 validation gates (c): each target's call rate (non-missing
     # genotypes / canonical variant count) must be >= policy.target_min_call_rate.
     # Genotype-dependent → checked here post-pass-2, not in evaluate_pass1_gates.
     # Per LLD §3.10: if it fires, the .pgen/.pvar exist on disk; the orchestrator's
-    # try/except (LLD §4.1 fix #6) unlinks the partial triplet.
-    target_idx = next((i for i, d in enumerate(inputs) if d.is_target), None)
-    if target_idx is not None:
+    # try/except (LLD §4.1 fix #6) unlinks the partial triplet. Multi-target
+    # mode evaluates the gate independently per target — strict semantics: any
+    # failing target blocks the whole merge.
+    for target_idx, desc in enumerate(inputs):
+        if not desc.is_target:
+            continue
         _check_target_call_rate(
             target_idx=target_idx,
             sample_plan=ctx.sample_plan,

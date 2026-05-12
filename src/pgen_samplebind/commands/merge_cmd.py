@@ -94,7 +94,7 @@ def _unlink_output_triplet(*paths: Path) -> None:
 
 def run_merge(
     input_paths: tuple[Path, ...],
-    target_path: Path | None,
+    target_paths: tuple[Path, ...],
     output_prefix: Path,
     policy: MergePolicy,
     report_path: Path | None,
@@ -106,23 +106,23 @@ def run_merge(
 ) -> None:
     """Merge subcommand orchestrator. Per LLD §4.1.
 
-    Target mode (--target): the target is appended as the LAST input. The
-    canonical (input[0]) remains the first positional. The target's descriptor
-    is marked is_target=True so merge_inputs's gate (c) call-rate check fires
-    on it, and resolve_sample_identity uses target_idx for the `_target`
-    suffix scheme.
+    Target mode (--target): one or more targets are appended after the
+    positional inputs. The canonical (input[0]) remains the first positional.
+    Each target's descriptor is marked is_target=True so merge_inputs's
+    gate (c) call-rate check fires per-target, and resolve_sample_identity
+    uses target_idxs for the `_target` / `_target_<idx>` suffix scheme
+    (bare `_target` for the single-target case; `_target_<input_idx>` when
+    multiple targets are supplied).
     """
-    # Target mode: append target as the last input; canonical = first positional.
-    if target_path is not None:
-        if not input_paths:
-            from ..errors import UsageError
+    if target_paths and not input_paths:
+        from ..errors import UsageError
 
-            raise UsageError("--target requires at least one positional INPUT (the panel).")
-        all_input_paths: tuple[Path, ...] = (*input_paths, target_path)
-        target_idx: int | None = len(input_paths)  # last index after append
-    else:
-        all_input_paths = input_paths
-        target_idx = None
+        raise UsageError("--target requires at least one positional INPUT (the panel).")
+
+    all_input_paths: tuple[Path, ...] = (*input_paths, *target_paths)
+    # Indexes (in all_input_paths) of every target. Empty when none.
+    target_idxs: tuple[int, ...] = tuple(len(input_paths) + i for i in range(len(target_paths)))
+    target_idx_set: frozenset[int] = frozenset(target_idxs)
 
     started = time.perf_counter()
 
@@ -139,12 +139,12 @@ def run_merge(
         stack.enter_context(output_lock(output_prefix))
 
         # Step 1: format detection per input via context manager. Target
-        # descriptor is marked is_target=True so gate (c) finds it.
+        # descriptors are marked is_target=True so gate (c) finds them.
         descriptors = [
             stack.enter_context(
                 prepared_input(
                     p,
-                    is_target=(i == target_idx),
+                    is_target=(i in target_idx_set),
                     include_chrom=policy.include_chrom,
                 )
             )
@@ -187,9 +187,10 @@ def run_merge(
             for d, df in zip(descriptors, psam_dfs, strict=True)
         ]
 
-        # Step 10: resolve sample identity (collision policy applied; target_idx
-        # drives the `_target` suffix scheme under --on-collision suffix).
-        sample_plan = psam.resolve_sample_identity(psam_dfs, policy, target_idx=target_idx)
+        # Step 10: resolve sample identity (collision policy applied; target_idxs
+        # drive the `_target` / `_target_<input_idx>` suffix scheme under
+        # --on-collision suffix).
+        sample_plan = psam.resolve_sample_identity(psam_dfs, policy, target_idxs=target_idxs)
 
         # Step 10b: per-input pseudohaploid sidecar (issue #2). Upstream tools
         # like pileup-aadr write `<prefix>.pseudohaploid.json` to assert

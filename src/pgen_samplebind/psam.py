@@ -218,17 +218,23 @@ def apply_relabel(
 def resolve_sample_identity(
     psams: list[pd.DataFrame],
     policy: MergePolicy,
-    target_idx: int | None,
+    target_idxs: tuple[int, ...] = (),
 ) -> SampleIdentityPlan:
     """Compute the SampleIdentityPlan from input psams + --on-collision policy.
     Per HLD §IID collision handling (v3.5) and LLD §3.5.
+
+    `target_idxs` is the (possibly empty) tuple of input indexes marked as
+    targets via --target. Zero or one target: target collision suffix is
+    bare `_target`. Two or more targets: suffix is `_target_<input_idx>`
+    so each target's renamed sample can be traced back unambiguously.
 
     Supports all three policies:
       - error: raises InvariantViolation on first collision (exit 3).
       - first: drops duplicates in input order; first occurrence wins.
       - suffix: renames duplicates per HLD v3.5:
           * General mode: input[N>0]'s colliding sample gets `_<input_idx>`.
-          * Target mode (input_idx == target_idx): suffix is `_target`.
+          * Single-target mode (one entry in target_idxs): suffix is `_target`.
+          * Multi-target mode (>=2 in target_idxs): suffix is `_target_<input_idx>`.
           * Idempotent retry: if the renamed slot is also taken, fall through
             to `<base>_<suffix>_1`, `<base>_<suffix>_2`, ... until free.
         Input[0]'s IIDs are never suffixed (canonical, preserved).
@@ -239,7 +245,7 @@ def resolve_sample_identity(
             have unique IIDs even under --on-collision suffix).
     """
     if policy.on_collision == "suffix":
-        return _resolve_with_suffix(psams, target_idx)
+        return _resolve_with_suffix(psams, target_idxs)
 
     output_iids: list[str] = []
     keep_masks: list[np.ndarray[Any, Any]] = []
@@ -277,16 +283,23 @@ def resolve_sample_identity(
     )
 
 
-def _resolve_with_suffix(psams: list[pd.DataFrame], target_idx: int | None) -> SampleIdentityPlan:
+def _resolve_with_suffix(
+    psams: list[pd.DataFrame],
+    target_idxs: tuple[int, ...],
+) -> SampleIdentityPlan:
     """--on-collision suffix scheme per HLD §IID collision handling (v3.5).
 
     Algorithm: sequential pass over inputs. Input[0] is canonical and never
     suffixed (raises if input[0] has internal duplicates). For input[N>0],
-    each colliding IID gets `_<input_idx>` (general) or `_target` (when
-    input_idx == target_idx) appended; if the suffixed name is also taken,
-    fall through to `<base>_<suffix>_1`, `<base>_<suffix>_2`, ... until a
-    free slot is found.
+    each colliding IID gets one of:
+      - `_target`            — when input_idx is the single target
+      - `_target_<input_idx>` — when input_idx is one of multiple targets
+      - `_<input_idx>`        — non-target
+    If the suffixed name is also taken, fall through to `<base>_<suffix>_1`,
+    `<base>_<suffix>_2`, ... until a free slot is found.
     """
+    target_idx_set = frozenset(target_idxs)
+    single_target = len(target_idxs) == 1
     output_iids: list[str] = []
     keep_masks: list[np.ndarray[Any, Any]] = []
     output_indices_per_input: list[np.ndarray[Any, Any]] = []
@@ -322,7 +335,10 @@ def _resolve_with_suffix(psams: list[pd.DataFrame], target_idx: int | None) -> S
                 continue
 
             # Collision — apply suffix scheme with idempotent retry.
-            base_suffix = "_target" if input_idx == target_idx else f"_{input_idx}"
+            if input_idx in target_idx_set:
+                base_suffix = "_target" if single_target else f"_target_{input_idx}"
+            else:
+                base_suffix = f"_{input_idx}"
             candidate = iid + base_suffix
             retry = 1
             while candidate in seen:

@@ -89,7 +89,7 @@ def test_perf_benchmark(tmp_path: Path) -> None:
     started = time.perf_counter()
     run_merge(
         input_paths=(pfile_a, pfile_b),
-        target_path=None,
+        target_paths=(),
         output_prefix=out,
         policy=policy,
         report_path=None,

@@ -63,12 +63,15 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
 @click.argument("inputs", nargs=-1, required=True, type=click.Path(path_type=Path))
 @click.option(
     "--target",
-    "target_path",
+    "target_paths",
     type=click.Path(path_type=Path),
-    default=None,
-    help="Mark one input as the target (single-sample / small-cohort mode); "
-    "activates asymmetric strand-check + call-rate gate (--target-min-call-rate). "
-    "Appended as the last input; canonical remains input[0].",
+    multiple=True,
+    help="Mark one or more inputs as targets (single-sample / small-cohort mode); "
+    "activates asymmetric strand-check + per-target call-rate gate "
+    "(--target-min-call-rate). Repeat --target to append multiple targets. "
+    "Targets are appended after the positional inputs; canonical remains input[0]. "
+    "Under --on-collision suffix, a single target uses `_target`; multiple targets "
+    "use `_target_<input_idx>` to disambiguate.",
 )
 @click.option(
     "-o",
@@ -157,7 +160,7 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
 )
 def merge_command(
     inputs: tuple[Path, ...],
-    target_path: Path | None,
+    target_paths: tuple[Path, ...],
     output_prefix: Path,
     variant_key: str,
     on_mismatch: str,
@@ -199,7 +202,7 @@ def merge_command(
     )
     run_merge(
         input_paths=inputs,
-        target_path=target_path,
+        target_paths=target_paths,
         output_prefix=output_prefix,
         policy=policy,
         report_path=report_path,

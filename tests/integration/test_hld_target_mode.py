@@ -317,6 +317,209 @@ class TestGateCTargetCallRate:
             assert not (Path(str(out) + ext)).exists(), f"gate (c) failure left {out}{ext} on disk"
 
 
+class TestMultiTarget:
+    """v0.2: `--target` is repeatable. Each target descriptor is marked
+    is_target=True; gate (c) call-rate fires per-target; the collision-suffix
+    scheme stays bare `_target` for the single-target case (backward-compat)
+    and switches to `_target_<input_idx>` when there are 2+ targets so each
+    rename traces to a source target unambiguously."""
+
+    def _panel_and_targets(
+        self, tmp_path: Path, n_targets: int, share_iid_with_panel: bool
+    ) -> tuple[Path, list[Path]]:
+        """Synthesize a panel + N targets. `share_iid_with_panel` decides
+        whether the targets reuse the panel's IID prefix (forcing collisions
+        under --on-collision suffix)."""
+        panel = synthesize_pfile(
+            SyntheticPanelSpec(
+                n_samples=4,
+                n_variants=30,
+                n_populations=1,
+                variant_seed=601,
+                sample_seed=602,
+                sample_id_prefix="P",
+            ),
+            tmp_path / "panel",
+        ).path
+        targets: list[Path] = []
+        for i in range(n_targets):
+            # Force IID collisions with the panel by reusing the panel's "P"
+            # prefix; otherwise give each target its own prefix so distinct
+            # targets don't collide with each other (the latter is what the
+            # pileup-aadr multi-sample feed-in produces in practice).
+            target_prefix = "P" if share_iid_with_panel else f"T{i}"
+            t = synthesize_pfile(
+                SyntheticPanelSpec(
+                    n_samples=1,
+                    n_variants=30,
+                    n_populations=1,
+                    variant_seed=601,
+                    sample_seed=700 + i,
+                    sample_id_prefix=target_prefix,
+                ),
+                tmp_path / f"target_{i}",
+            ).path
+            targets.append(t)
+        return panel, targets
+
+    def test_two_targets_no_collision_appended(self, tmp_path: Path) -> None:
+        """Two targets with distinct IIDs append cleanly: output has
+        panel_n + 1 + 1 samples, both target IIDs present as-is.
+
+        `--trust-strand` matches the typical pileup-aadr → samplebind
+        flow (single-source AADR panel, no cross-source strand ambiguity)
+        and avoids gate (b) tripping on the small synth panel's random
+        ambiguous-strand fraction."""
+        panel, targets = self._panel_and_targets(tmp_path, n_targets=2, share_iid_with_panel=False)
+        out = tmp_path / "merged"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(panel),
+                "--target",
+                str(targets[0]),
+                "--target",
+                str(targets[1]),
+                "--trust-strand",
+                "-o",
+                str(out),
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        iids = _read_psam_iids(out)
+        # 4 panel + 2 targets = 6; targets keep their prefix-distinct IIDs.
+        assert len(iids) == 6
+        assert "T000000" in iids  # target 0's sole sample
+        assert "T100000" in iids  # target 1's sole sample
+
+    def test_single_target_uses_bare_target_suffix(self, tmp_path: Path) -> None:
+        """Backward-compat: with exactly one --target, a collision gets the
+        bare `_target` suffix as in v0.1 (NOT `_target_<idx>`)."""
+        panel, targets = self._panel_and_targets(tmp_path, n_targets=1, share_iid_with_panel=True)
+        out = tmp_path / "merged"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(panel),
+                "--target",
+                str(targets[0]),
+                "--on-collision",
+                "suffix",
+                "--trust-strand",
+                "-o",
+                str(out),
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        iids = _read_psam_iids(out)
+        assert "P00000_target" in iids
+        # Sanity: no `_target_4` (input_idx-based suffix) since we're single-target.
+        assert not any(iid.endswith("_target_4") for iid in iids), iids
+
+    def test_multi_target_uses_indexed_target_suffix(self, tmp_path: Path) -> None:
+        """With 2+ targets colliding on the same panel IID, suffix is
+        `_target_<input_idx>`. Panel has 4 inputs; first target is input_idx=1,
+        second is input_idx=2."""
+        panel, targets = self._panel_and_targets(tmp_path, n_targets=2, share_iid_with_panel=True)
+        out = tmp_path / "merged"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(panel),
+                "--target",
+                str(targets[0]),
+                "--target",
+                str(targets[1]),
+                "--on-collision",
+                "suffix",
+                "--trust-strand",
+                "-o",
+                str(out),
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        iids = _read_psam_iids(out)
+        # Panel = input_idx 0 (canonical, no suffix). Targets are input_idx 1 and 2.
+        assert "P00000_target_1" in iids, iids
+        assert "P00000_target_2" in iids, iids
+        # No bare `_target` (that would mean single-target mode crept in).
+        assert "P00000_target" not in iids
+
+    def test_per_target_gate_c_fires_on_one_bad_target(self, tmp_path: Path) -> None:
+        """Strict semantics: a single failing target's gate (c) blocks the
+        whole multi-target merge (matches single-target v0.1 behavior)."""
+        panel = synthesize_pfile(
+            SyntheticPanelSpec(
+                n_samples=4,
+                n_variants=40,
+                n_populations=1,
+                variant_seed=801,
+                sample_seed=802,
+                sample_id_prefix="P",
+            ),
+            tmp_path / "panel",
+        ).path
+        # Healthy target with high call rate.
+        good = synthesize_pfile(
+            SyntheticPanelSpec(
+                n_samples=1,
+                n_variants=40,
+                n_populations=1,
+                variant_seed=801,
+                sample_seed=900,
+                missing_rate=0.0,
+                sample_id_prefix="G",
+            ),
+            tmp_path / "good",
+        ).path
+        # Pathological target with ~95% missingness → ~5% call rate, well
+        # below the default 40% gate.
+        bad = synthesize_pfile(
+            SyntheticPanelSpec(
+                n_samples=1,
+                n_variants=40,
+                n_populations=1,
+                variant_seed=801,
+                sample_seed=901,
+                missing_rate=0.95,
+                sample_id_prefix="B",
+            ),
+            tmp_path / "bad",
+        ).path
+
+        out = tmp_path / "merged"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(panel),
+                "--target",
+                str(good),
+                "--target",
+                str(bad),
+                "--trust-strand",
+                "-o",
+                str(out),
+                "--quiet",
+            ],
+        )
+        # Exit-1 via the gate-c ValidationError. CliRunner doesn't map to
+        # cli.main's exit code, so we assert on exception type instead.
+        assert isinstance(result.exception, ValidationError), result.output
+        # Failing sample is from the bad target (prefix "B").
+        assert "B00000" in str(result.exception)
+
+
 class TestTargetWithoutPanelRejected:
     """--target requires at least one positional INPUT (the panel).
 

@@ -108,7 +108,7 @@ def run_validate(
         evaluate_pass1_gates(alignment_table, summary, policy, is_validate_mode=True)
 
         # Step 12: collision detection only (no output written)
-        psam.resolve_sample_identity(psam_dfs, policy, target_idx=None)
+        psam.resolve_sample_identity(psam_dfs, policy)
 
         # Build a partial MergeCounters for reporting. Validate has no pass 2,
         # so per_sample_het is empty; n_output_samples derived from psams.
