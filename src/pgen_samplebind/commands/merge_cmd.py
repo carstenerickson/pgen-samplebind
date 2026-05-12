@@ -198,12 +198,15 @@ def run_merge(
         # collision plan to output IIDs so Step 14 can override classification.
         sidecar_overrides = _collect_sidecar_overrides(descriptors, psam_dfs, sample_plan)
 
-        # Step 11: build MergeContext
+        # Step 11: build MergeContext. Progress bar is on by default when
+        # stderr is a tty and the user didn't pass --quiet — workflow
+        # managers (Snakemake, Nextflow) pipe stderr and so see a silent run.
         ctx = MergeContext(
             policy=policy,
             sample_plan=sample_plan,
             report_tsv_path=report_path,
             collect_variant_rows=(policy.report_json_include_rows and report_json_path is not None),
+            show_progress=(not quiet and sys.stderr.isatty()),
         )
 
         # Steps 12-15: merge_inputs + psam finalization, wrapped in the

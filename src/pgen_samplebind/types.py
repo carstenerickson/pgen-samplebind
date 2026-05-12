@@ -289,3 +289,7 @@ class MergeContext:
     sample_plan: SampleIdentityPlan
     report_tsv_path: Path | None = None
     collect_variant_rows: bool = False
+    # v0.2: tqdm-driven progress bar on the pass-2 variant-block loop.
+    # Set by `run_merge` to `not quiet and sys.stderr.isatty()` so workflow
+    # managers (piped stderr) and `--quiet` runs stay silent.
+    show_progress: bool = False

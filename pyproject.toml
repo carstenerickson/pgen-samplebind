@@ -34,6 +34,7 @@ dependencies = [
     "numpy>=1.26,<3",
     "pandas>=2.2,<4",
     "click>=8.1,<9",
+    "tqdm>=4.66,<5",
 ]
 
 [project.optional-dependencies]
@@ -77,6 +78,10 @@ files = ["src/pgen_samplebind"]
 
 [[tool.mypy.overrides]]
 module = "pgenlib"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tqdm"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

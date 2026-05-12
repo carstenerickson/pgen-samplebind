@@ -23,6 +23,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from . import pseudohaploid, pvar, reporting
 from .alignment import (
@@ -306,7 +307,23 @@ def merge_inputs(
             )
 
         # ----- Pass 2: chrom-aware block loop -----
-        for block_start, block_end in _iter_blocks_chrom_aware(kept_table, ctx.policy.block_size):
+        # Progress bar wraps the block iterator when ctx.show_progress is set
+        # (v0.2). Unit is variants (each block contributes block_size_actual);
+        # tqdm renders rate as variants/s in the bar suffix. Off in piped or
+        # --quiet contexts so workflow-manager stderr stays clean.
+        block_iter: Iterator[tuple[int, int]] = _iter_blocks_chrom_aware(
+            kept_table, ctx.policy.block_size
+        )
+        progress_bar: tqdm[Any] | None = None
+        if ctx.show_progress:
+            progress_bar = tqdm(
+                total=n_kept,
+                unit=" variants",
+                desc="Pass 2: streaming genotypes",
+                leave=False,
+            )
+
+        for block_start, block_end in block_iter:
             block_alignment = kept_table.iloc[block_start:block_end]
             block_size_actual = len(block_alignment)
             chrom_int = int(block_alignment["chrom"].iloc[0])
@@ -343,6 +360,11 @@ def merge_inputs(
 
             pseudohaploid.update_block(output_buf, chrom_int, het_counts, called_counts)
             writer.append_biallelic_batch(output_buf)
+            if progress_bar is not None:
+                progress_bar.update(block_size_actual)
+
+        if progress_bar is not None:
+            progress_bar.close()
 
         try:
             writer.close()
