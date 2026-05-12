@@ -1,14 +1,14 @@
 {
     "_comment": "HLD test 18 throughput baseline. CI gate fires if measured throughput < threshold_pct * baseline. Update manually when an intentional perf change lands; do NOT auto-update (silent baseline drift defeats the gate's purpose).",
-    "_calibration_notes": "Initial baseline measured 2026-05-10 on GitHub `ubuntu-latest` runner: 31.9M genotypes/sec end-to-end (pass-1 alignment + pass-2 genotype rewrite + .psam finalization) on a 250-sample × 20K-variant × 2-panel fixture. The HLD §Performance 100M g/s target was aspirational and assumed dedicated developer hardware + raw pgenlib throughput excluding pandas/IO overhead. The 25M baseline below is set conservatively below the measured 31.9M to leave noise margin on shared CI runners; the 80% threshold then effectively gates at ~20M g/s, which catches a real >40% regression without tripping on day-to-day GitHub-runner variance.",
+    "_calibration_notes": "Calibration history. (1) 2026-05-10 (v0.1): 250-sample x 20K-variant x 2-panel fixture (10M genotypes). Initial baseline measured 31.9M g/s on `ubuntu-latest`; conservative baseline pinned at 25M g/s. (2) 2026-05-12 (v0.3.1): fixture bumped to 500 x 100K x 2 (100M genotypes, 10x larger). The smaller fixture was insufficient to surface the v0.3 hot-path vectorization wins — at 20K variants, fixed overhead (synth, pandas join, RSS measurement) dwarfed the per-row-loop savings. At 100K variants per panel, pass-1 alignment and pass-2 placement dominate, so any future regression in those code paths is detectable. Baseline retained at 25M g/s until the next CI run produces a calibrated number; a follow-up commit will bump it to ~0.9x of the measured throughput on the v0.3 codebase (leaves ~10% noise margin for runner variance).",
     "throughput_genotypes_per_sec_baseline": 25000000,
     "threshold_pct_of_baseline": 0.80,
     "platform_pin": "linux-x86_64",
     "fixture": {
-        "n_samples_per_panel": 250,
-        "n_variants": 20000,
+        "n_samples_per_panel": 500,
+        "n_variants": 100000,
         "n_panels": 2
     },
-    "max_rss_mb_ceiling": 1024,
-    "wallclock_s_ceiling": 60.0
+    "max_rss_mb_ceiling": 2048,
+    "wallclock_s_ceiling": 120.0
 }

@@ -91,8 +91,12 @@ jobs:
       # have inconsistent CPU profiles per LLD §5.7. Baseline lives in
       # tests/integration/perf_baseline.json; failure means a regression
       # below 80 % of the recorded throughput.
+      # -s disables pytest's stdout capture so the test's `[perf] ...`
+      # print line surfaces in the CI log on PASS (not just on FAIL).
+      # Gives us a per-run throughput / RSS / elapsed datapoint to track
+      # over time without parsing JUnit XML or diffing baseline files.
       - name: Perf benchmark
-        run: pytest tests/integration/test_perf_benchmark.py -m slow --no-cov -v
+        run: pytest tests/integration/test_perf_benchmark.py -m slow --no-cov -v -s
 
   dogfood:
     # Named status check for the AADR-derivative regression test suite.

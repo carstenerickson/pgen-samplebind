@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Perf benchmark fixture scaled up 10x.** Bumped from 250-sample x 20K-variant x 2-panel (10M genotypes) to 500 x 100K x 2 (100M genotypes). At the smaller scale, fixed overhead (synth, pandas join, RSS sampling) dwarfed the per-row-loop costs that the v0.3 vectorization eliminated — the bench passed but couldn't detect future regressions in those code paths. The 10x bump makes the alignment and placement loops the dominant cost, restoring the gate's regression-detection value. Wallclock + RSS ceilings raised proportionally (60s → 120s; 1024MB → 2048MB). Baseline number retained at 25M g/s until the first CI run on the new fixture produces a calibrated measurement; a follow-up commit will bump it to ~0.9x of the measured value.
+- **CI perf-bench step now passes `-s`** so the test's `[perf] elapsed=... throughput=... peak_rss=...` print line surfaces in the workflow log on PASS (not just on FAIL). Gives us a per-run throughput datapoint for ad-hoc trend tracking without parsing JUnit XML.
+
 ## [0.3.0] - 2026-05-12
 
 Performance + cleanup release. The v0.1/v0.2 implementation had several Python-level loops in the merge hot path that didn't scale well past 1240k variants. v0.3 vectorizes the five biggest, cutting end-to-end wallclock by an estimated 20-40% at 1240k scale.
