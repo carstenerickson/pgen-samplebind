@@ -20,11 +20,17 @@ That's it for the happy path. Variant alignment, strand canonicalization, ambigu
 pip install pgen-samplebind
 ```
 
-Requires Python 3.11 or 3.12. For EIGENSTRAT or BFILE inputs, also install **plink2 v2.0.0-a.7.1 or newer** and put it on PATH:
+Requires Python 3.11 through 3.14. CI tests all four versions on both Ubuntu and macOS. For EIGENSTRAT or BFILE inputs, also install **plink2 v2.0.0-a.7.1 or newer** and put it on PATH. Pick the right asset for your platform:
 
 ```bash
-# Linux / macOS — direct binary from the upstream release
-curl -fsSL https://github.com/chrchang/plink-ng/releases/download/v2.0.0-a.7.1/plink2_linux_x86_64.zip -o /tmp/plink2.zip
+# Linux x86_64
+ASSET=plink2_linux_x86_64.zip
+# macOS Apple Silicon
+# ASSET=plink2_mac_arm64.zip
+# macOS Intel
+# ASSET=plink2_mac.zip
+
+curl -fsSL "https://github.com/chrchang/plink-ng/releases/download/v2.0.0-a.7.1/${ASSET}" -o /tmp/plink2.zip
 unzip /tmp/plink2.zip -d ~/bin
 plink2 --version  # confirm v2.0.0-a.7.1 (or newer) on PATH
 ```
@@ -63,8 +69,10 @@ pgen-samplebind merge \
 Two cohort releases from different labs — one in EIGENSTRAT, one in PFILE — both built on 1240k. Strand canonicalization may differ; ambiguous A/T and C/G SNPs may need explicit policy.
 
 ```bash
+# cohort_a is EIGENSTRAT (cohort_a.geno + .snp + .ind); cohort_b is PFILE
+# (cohort_b.pgen + .pvar + .psam). Format is auto-detected from the prefix.
 pgen-samplebind merge \
-    /data/cohort_a.geno_prefix \
+    /data/cohort_a \
     /data/cohort_b \
     -o /data/cohort_ab \
     --on-strand flip \
@@ -89,11 +97,11 @@ pgen-samplebind merge \
 ## Subcommands
 
 ```
-pgen-samplebind merge     INPUT [INPUT ...] -o OUTPUT [options]
-pgen-samplebind validate  INPUT [INPUT ...]                [options]
-pgen-samplebind afs       INPUT             -o OUTDIR     [options]
-pgen-samplebind hash      INPUT
-pgen-samplebind inspect   INPUT
+pgen-samplebind merge    INPUT [INPUT ...] -o OUTPUT  [options]
+pgen-samplebind validate INPUT [INPUT ...]            [options]
+pgen-samplebind afs      INPUT             -o OUTDIR  [options]
+pgen-samplebind hash     INPUT                        [options]
+pgen-samplebind inspect  INPUT                        [options]
 ```
 
 Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion files (`.pgen`+`.pvar`+`.psam` / `.bed`+`.bim`+`.fam` / `.geno`+`.snp`+`.ind`).
@@ -103,14 +111,14 @@ Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion 
 | Option | Default | Purpose |
 |---|---|---|
 | `-o, --out PREFIX` | required | Output PFILE prefix |
-| `--target PATH` | none | Single-sample / small-cohort mode; activates asymmetric strand-check + call-rate gate. Appended as last input; canonical remains input[0] |
+| `--target PATH` | none | Single-sample / small-cohort mode; activates asymmetric strand-check + per-target call-rate gate. Targets are appended after the positional inputs; canonical remains input[0]. Repeatable — pass `--target` multiple times to append several targets in one merge |
 | `--variant-key {chr_pos\|id}` | `chr_pos` | Match key |
 | `--on-mismatch {drop\|error}` | `drop` | Allele mismatch beyond resolution |
 | `--on-missing {fill_missing\|drop_variant\|error}` | `fill_missing` | Variant in input[0] absent in input N |
 | `--on-extra {warn\|drop\|error}` | `warn` | Variant in input N absent from input[0] |
 | `--on-strand {drop\|flip\|error}` | `flip` | Strand mismatch on unambiguous SNPs |
 | `--trust-strand` | off | Pass A/T and C/G ambiguous SNPs without flagging (footgun for cross-source panels) |
-| `--on-collision {error\|first\|suffix}` | `error` | IID collision policy. `suffix` uses `_<input_idx>` (general) / `_target` (target mode) with idempotent numeric retry |
+| `--on-collision {error\|first\|suffix}` | `error` | IID collision policy. `suffix` uses `_<input_idx>` (general); `_target` (single-target mode); `_target_<input_idx>` (multi-target mode, ≥ 2 targets, so renames disambiguate). Idempotent numeric retry on further collisions |
 | `--id-column NAME` | `IID` | `.psam` column for identity ops (e.g., `'Master ID'` for AADR anno) |
 | `--population-column NAME` | auto | Holds population labels (default: POP / PHENO / PHENO1 fallback) |
 | `--target-min-call-rate FLOAT` | `0.40` | Target-mode per-sample minimum call rate before exit-1 |
@@ -131,9 +139,13 @@ Same alignment / strand options as `merge`. No output written; reports go to std
 ### `hash` — emit canonical variant-set hash
 
 ```bash
+# Hashing the same variant set via two different formats yields the same
+# digest: PFILE on /data/aadr_v66_subset.{pgen,pvar,psam} and EIGENSTRAT
+# on /data/aadr_v66_subset_eig.{geno,snp,ind}. Format is auto-detected
+# from the companion files present at the prefix.
 pgen-samplebind hash /data/aadr_v66_subset
 # 7c4f8e...  PFILE
-pgen-samplebind hash /data/aadr_v66_subset.geno_prefix
+pgen-samplebind hash /data/aadr_v66_subset_eig
 # 7c4f8e...  EIGENSTRAT  ← same hash → format-equivalent panels
 ```
 
@@ -187,12 +199,12 @@ Format, sample count, variant count, populations, pseudohaploid mix, sex distrib
 
 ## Validation gates (exit 1)
 
-Both `merge` and `validate` apply the same soft-validation gates and exit 1 if any fires:
+`merge` applies soft-validation gates (a)-(c); `validate` applies all four (a)-(d). Any firing gate exits 1.
 
 - **(a) Extras above warn threshold.** Variants in input[N] absent from input[0] exceed the `--on-extra` warn threshold (10% of input[0] by default). Catches the input-order-reversed failure mode (smaller panel placed first; larger panel's distinct variants silently dropped).
 - **(b) Ambiguous-strand drops above intersection threshold.** Drops due to A/T or C/G allele ambiguity exceed `--validate-strand-fail-pct` of the alignment intersection (10% by default). Intersection denominator is deliberate: catches the wrong-panel failure mode (tiny intersection × 30% drop rate) that a canonical denominator would silently hide.
 - **(c) Target call rate below threshold.** In `--target` mode, target's non-missing call count over canonical variants is below `--target-min-call-rate`.
-- **(d) `--on-* error` policy would have triggered (validate mode only).** In merge mode those policies still exit 3 — explicit invariant enforcement is honored.
+- **(d) `--on-* error` policy would have triggered.** Validate-mode only — `validate` softens the `error` policies into a count + gate-(d) trigger so it can report the full picture rather than aborting at the first hit. In `merge` mode those policies aren't softened: they raise an `InvariantViolation` and exit 3 (explicit invariant enforcement is honored).
 
 For `merge`, gates (a)-(c) run between pass 1 (alignment) and pass 2 (genotype streaming) — failing fast saves the pass-2 wallclock for an alignment that wouldn't have validated.
 
@@ -214,11 +226,11 @@ Stable across versions; safe to script against.
 - **Same output prefix**: tool advisory-locks `{out}.lock` via `fcntl.flock`; fails clearly with exit 2 if held; cleans up on success or signal.
 - **Cache directory**: not managed by this tool — caller's problem.
 
-The lock prevents two concurrent invocations from corrupting each other's output. It does not synchronize across machines (file lock is local-fs only). On NFS/SMB/CIFS the tool emits a stderr warning at acquire time since `fcntl.flock` semantics over network filesystems are implementation-defined and effectively no-op.
+The lock prevents two concurrent invocations from corrupting each other's output. It does not synchronize across machines (file lock is local-fs only). On Linux, the tool detects NFS/SMB/CIFS at lock-acquire time (via `/proc/self/mountinfo`) and emits a stderr warning since `fcntl.flock` semantics over network filesystems are implementation-defined and effectively no-op; the lock is still attempted. On macOS the detection is suppressed (no `/proc`-equivalent fs-type API) to avoid false positives — the network-fs caveat applies the same way, you just won't get the diagnostic warning.
 
 ## Performance
 
-Expected throughput ~25-30 M genotypes/sec end-to-end on a typical Linux x86_64 machine (one core, default `--block-size 2048`). For a 700-sample × 1.15M-variant 1240k panel, plan on roughly 30-60 seconds wallclock including pass-1 alignment, pass-2 genotype rewrite, and `.psam` finalization. The v0.3 vectorization pass cut Python-level loops from the hot paths; the perf benchmark in CI gates against regression below 80% of the recorded baseline.
+Expected throughput **50-70 M genotypes/sec end-to-end** on a typical Linux x86_64 machine (one core, default `--block-size 2048`), post-v0.3 vectorization. The v0.3.1 CI baseline measured 70.84 M g/s on a 100M-genotype synthetic fixture (`ubuntu-latest`); the perf benchmark gates against regression below 80% of that recorded baseline. For a 700-sample × 1.15M-variant 1240k panel, plan on roughly 15-25 seconds wallclock including pass-1 alignment, pass-2 genotype rewrite, and `.psam` finalization.
 
 ## Troubleshooting
 

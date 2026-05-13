@@ -32,7 +32,7 @@ pytest tests/
 
 | Marker | Means |
 |---|---|
-| `slow` | > 30s wallclock; e.g., HLD-test-17 mergeit f2 parity, HLD-test-18 perf benchmark |
+| `slow` | > 30s wallclock; e.g., `tests/integration/test_mergeit_f2_parity.py`, `tests/integration/test_perf_benchmark.py` |
 | `external_tool` | Requires AdmixTools 2 / mergeit binaries on PATH |
 | `eigenstrat` | Requires plink2 with EIGENSTRAT support |
 | `network` | Requires internet (AADR Dataverse fetch) |
@@ -47,23 +47,18 @@ The dogfood suite is the project's primary **trust artifact**: anyone can clone,
 A 44-sample × 50K-variant fixture (Patterson 7-source + 4 English target pops + 1 individual target, drawn from AADR v66 under fair-use for non-commercial scholarly verification — see [`tests/dogfood/README.md`](tests/dogfood/README.md)) flows through `pgen-samplebind merge` and is verified against a vendored mergeit-pipeline reference qpAdm TSV.
 
 ```bash
-# Tier 1 — default, no external deps (~10s)
-pytest tests/dogfood/
-
-# Tier 2 — adds plink2 PFILE→BED conversion check
-pytest tests/dogfood/ -m "dogfood or dogfood_plink2"
-
-# Tier 3 — full qpAdm shootout (needs R + admixtools installed)
-pytest tests/dogfood/ -v
+pytest tests/dogfood/         # runs all 6 tests; auto-skips tier-2/3 if tools missing
 ```
 
-| Tier | Requires | Verifies |
-|---|---|---|
-| Default | nothing (pgen-samplebind only) | panel shape, cM preservation, FID=POP, PSEUDOHAPLOID column populated |
-| `dogfood_plink2` | `plink2` on PATH | PFILE → BED conversion preserves cM end-to-end |
-| `dogfood_full` | `plink2` + R + `admixtools` | extract_f2 + qpAdm shootout numerically matches the vendored mergeit reference (tolerance 1e-6 on weights, 1e-4 on p_tail) |
+The dogfood tests gate via `pytest.skipif` against `HAS_PLINK2` / `HAS_ADMIXTOOLS` probes in `tests/dogfood/conftest.py`, not via the marker selector. So bare `pytest tests/dogfood/` runs everything that's available on your machine and silently skips the rest:
 
-CI runs all three tiers on every commit; locally you can run the cheaper tiers without setting up R + admixtools.
+| Tier | Marker | Requires | Verifies |
+|---|---|---|---|
+| 1 | `dogfood` (all six) | nothing (pgen-samplebind only) | panel shape, cM preservation, FID=POP, PSEUDOHAPLOID column populated |
+| 2 | `dogfood_plink2` | `plink2` on PATH | PFILE → BED conversion preserves cM end-to-end |
+| 3 | `dogfood_full` | `plink2` + R + `admixtools` | extract_f2 + qpAdm shootout numerically matches the vendored mergeit reference (tolerance 1e-6 on weights, 1e-4 on p_tail) |
+
+To force the full tier-3 shootout locally, install plink2 + R + admixtools first; CI's dedicated `dogfood` job sets up all three on every commit and runs the whole set. The `dogfood_plink2` / `dogfood_full` markers exist for CI status-check naming and intent documentation; they don't subset what `pytest tests/dogfood/` runs.
 
 ## Code quality
 
@@ -76,9 +71,9 @@ mypy src/
 ```
 
 - **`ruff`**: linting (E/F/W/I/B/UP/SIM/RUF rule sets per `pyproject.toml`) and formatting. Run `ruff format src/ tests/` to auto-fix formatting.
-- **`mypy`**: strict mode (`--strict`) over `src/pgen_samplebind`. `pgenlib` has no stubs upstream, so it's marked `ignore_missing_imports`.
+- **`mypy`**: strict mode over `src/pgen_samplebind` only. The scope is set via `files = ["src/pgen_samplebind"]` in `pyproject.toml`'s `[tool.mypy]` section, so `mypy` with no args (the form CI runs as `mypy src/`) checks just the library code. `pgenlib` has no stubs upstream, so it's marked `ignore_missing_imports`.
 
-Tests don't run under `mypy --strict` — only `src/` does. New tests should still type-annotate fixtures and helpers, but the strict gate is intentionally narrow to keep test-writing friction low.
+Running `mypy tests/` explicitly would type-check the test suite under strict mode and surface a different (noisier) set of findings — the strict gate is intentionally narrow to keep test-writing friction low. New tests should still type-annotate fixtures and helpers, but they aren't gated by CI.
 
 ## Commit + PR conventions
 
@@ -113,11 +108,13 @@ The CI bench gate (`tests/integration/test_perf_benchmark.py`) reads `tests/inte
 
 When an intentional perf change lands:
 
-1. Push the change to `main` and observe the CI bench-job log for the `[perf] elapsed=… throughput=… peak_rss=…` line.
+1. Push the change to `main` and observe the CI bench-job log for the `[perf] elapsed=… throughput=… peak_rss=…` line. (Surfaced on PASS thanks to the bench step's `-s` flag in `.github/workflows/ci.yml`.)
 2. If the new throughput is significantly higher than the current baseline (≥ ~20% above), update `perf_baseline.json`:
    - Bump `throughput_genotypes_per_sec_baseline` to ~0.92x of the measured value (leaves ~8% headroom for runner variance — single-digit-percent in practice).
    - Add an entry to `_calibration_notes` recording the date, the measured number, and the rationale.
 3. Commit as a separate `ci(perf): calibrate baseline to NM g/s` change. Do not silently roll the baseline into a feature commit — the calibration history is the only durable record of when each number was set.
+
+Concrete example — the v0.3.1 calibration: the new fixture measured **70.84 M g/s** on `ubuntu-latest`; the baseline was bumped to **65 M g/s** (91.8% of measured, ≈0.92x), gating at the existing 0.80 threshold-pct = **52 M g/s** = 73% of current. That tolerates the observed ~8.5% run-to-run runner variance while catching a real ~27% regression. See the matching `_calibration_notes` entry in `perf_baseline.json` for the audit trail.
 
 Do **not** auto-update the baseline. Silent drift defeats the gate's purpose.
 
