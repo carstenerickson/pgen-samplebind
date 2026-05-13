@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`DEVELOPMENT.md` — module map + exception hierarchy now render as mermaid diagrams.** The two structural figures that benefit most from a visual layout: a `flowchart TD` showing the 5-layer dependency stack (CLI → subcommand orchestrators → engine → I/O / alignment / identity → base types & errors), and a `classDiagram` showing `PgenSamplebindError`'s four subclasses with their exit codes and what raises them. Both render natively on GitHub. The truth-table, perf-bench, dogfood, and orchestration sections stay as prose / tables — those either don't have a natural visual shape (truth table is 4D) or change too often to be worth the diagram-maintenance overhead (orchestration step numbers shift between releases).
+
 ### Fixed
 
 - **Removed five hardcoded `/home/carstenerickson/ancestry/track_e/...` paths from `tests/dogfood/fixtures/build_fixture.py`.** The fixture-regeneration script previously baked the maintainer's local research-data directory layout into a public file. Replaced with an environment-variable interface (`PGENSB_DOGFOOD_V66_PREFIX`, `_V62_ANNO`, `_V62_PATCHED`, `_BRIT_PREFIX`, optional `_OUTDIR`). The script now fails fast with a clear missing-variable message when invoked without configuration. `tests/dogfood/README.md` updated with the env-var interface in §"Regenerating the fixture", and the tier-2 marker-selector example corrected to match how `pytest.skipif` actually gates tier execution (same fix as the prior CONTRIBUTING audit, surfaced here during a repository-wide internal-path / wiki-reference sweep).

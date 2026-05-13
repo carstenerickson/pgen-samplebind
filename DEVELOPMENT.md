@@ -20,37 +20,43 @@ The split exists for three reasons:
 
 ## Module map
 
-13 modules in `src/pgen_samplebind/` + 5 thin subcommand orchestrators in `src/pgen_samplebind/commands/`. Layering goes bottom-up: `types.py` is the leaf, `errors.py` imports from `types`, everything else builds on top.
+13 modules in `src/pgen_samplebind/` + 5 thin subcommand orchestrators in `src/pgen_samplebind/commands/`. Layering goes top-down by dependency (arrows point from importer to imported): `cli.py` at the top, `types.py` at the bottom as the leaf, `errors.py` builds on `types`, everything else builds on top.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ cli.py                  click entry; routes to commands/*   │
-├─────────────────────────────────────────────────────────────┤
-│ commands/merge_cmd.py   run_merge — the 17-step orchestrator│
-│ commands/validate_cmd.py run_validate — pass 1 only         │
-│ commands/afs_cmd.py     run_afs — AFS bundle writer         │
-│ commands/hash_cmd.py    run_hash                            │
-│ commands/inspect_cmd.py run_inspect                         │
-├─────────────────────────────────────────────────────────────┤
-│ merge.py        merge_inputs — pass 1 + gates + pass 2      │
-│ afs.py          compute_afs — per-(variant, pop) AFS        │
-│ reporting.py    --report TSV + --report-json + stdout summary│
-├─────────────────────────────────────────────────────────────┤
-│ alignment.py    build_alignment_table — pass-1 truth table  │
-│                 + evaluate_pass1_gates + action_histograms  │
-│ formats.py      prepared_input — auto-detect + shell-out to │
-│                 plink2 for BFILE / PACKEDANCESTRYMAP        │
-│                 EIGENSTRAT; native parser for ASCII-per-line│
-│                 EIGENSTRAT (plink2 doesn't read it)         │
-│ pvar.py         read_pvar + biallelic filter + chrom cast   │
-│ psam.py         read_psam + resolve_sample_identity         │
-│ pseudohaploid.py classify + update_block + read_sidecar     │
-│ hashing.py      canonical-variant-set hash                  │
-│ concurrency.py  output_lock + detect_network_filesystem     │
-├─────────────────────────────────────────────────────────────┤
-│ errors.py       PgenSamplebindError + 4 subclasses          │
-│ types.py        dataclasses + enums + MergePolicy           │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph cli_layer[" CLI entry "]
+        cli["cli.py — click routes to commands/*"]
+    end
+    subgraph commands_layer[" Subcommand orchestrators "]
+        merge_cmd["merge_cmd.py — run_merge (17-step)"]
+        validate_cmd["validate_cmd.py — run_validate (pass 1 only)"]
+        afs_cmd["afs_cmd.py — run_afs"]
+        hash_cmd["hash_cmd.py — run_hash"]
+        inspect_cmd["inspect_cmd.py — run_inspect"]
+    end
+    subgraph engine_layer[" Pass-1 + pass-2 engine "]
+        merge["merge.py — merge_inputs (pass 1 + gates + pass 2)"]
+        afs["afs.py — compute_afs"]
+        reporting["reporting.py — TSV / JSON / stdout summary"]
+    end
+    subgraph io_layer[" I/O, alignment, identity "]
+        alignment["alignment.py — build_alignment_table + truth lookup + gates"]
+        formats["formats.py — prepared_input (auto-detect, plink2 shell-out, ASCII parser)"]
+        pvar["pvar.py — read_pvar + biallelic filter + chrom cast"]
+        psam["psam.py — read_psam + resolve_sample_identity"]
+        pseudohaploid["pseudohaploid.py — classify + update_block + read_sidecar"]
+        hashing["hashing.py — canonical-variant-set hash"]
+        concurrency["concurrency.py — output_lock + NFS detection"]
+    end
+    subgraph base_layer[" Base "]
+        errors["errors.py — PgenSamplebindError + 4 subclasses"]
+        types["types.py — dataclasses + enums + MergePolicy"]
+    end
+    cli_layer --> commands_layer
+    commands_layer --> engine_layer
+    engine_layer --> io_layer
+    io_layer --> base_layer
+    errors --> types
 ```
 
 When making a change, the "scope" of your touch usually predicts the test surface: edits in `types.py` ripple everywhere; edits in `commands/*.py` rarely break anything outside the affected subcommand's integration tests.
@@ -141,12 +147,32 @@ Gates (a) and (b) live in `alignment.evaluate_pass1_gates`. Gate (c) lives in `m
 
 `cli.main()` catches `PgenSamplebindError` and exits with `e.exit_code`. Click's `standalone_mode=False` is pinned because click's default exit-2 on usage errors would collide with our exit-2 reservation for I/O failures.
 
-```
-PgenSamplebindError (base; exit 3 default)
-├── ValidationError    (exit 1)  gates a/b/c/d
-├── IOFailure          (exit 2)  read/write failure, plink2 subprocess, lock held
-├── InvariantViolation (exit 3)  multi-allelic, dup canonical keys, --on-* error
-└── UsageError         (exit 4)  bad arg combinations, missing input prefix
+```mermaid
+classDiagram
+    PgenSamplebindError <|-- ValidationError
+    PgenSamplebindError <|-- IOFailure
+    PgenSamplebindError <|-- InvariantViolation
+    PgenSamplebindError <|-- UsageError
+    class PgenSamplebindError {
+        base class
+        exit_code = 3 (default)
+    }
+    class ValidationError {
+        exit_code = 1
+        raised by: gates a/b/c/d
+    }
+    class IOFailure {
+        exit_code = 2
+        raised by: read/write fail, plink2 subprocess, lock held
+    }
+    class InvariantViolation {
+        exit_code = 3
+        raised by: multi-allelic, dup keys, --on-* error
+    }
+    class UsageError {
+        exit_code = 4
+        raised by: bad args, missing prefix
+    }
 ```
 
 Stable across versions; safe to script against. Mapping rule of thumb when adding a new error: if the user could fix it by changing data → exit 1; if their machine prevented it → exit 2; if it's a data invariant they should have caught upstream → exit 3; if it's a CLI mistake → exit 4.
