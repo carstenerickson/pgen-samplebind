@@ -77,35 +77,26 @@ Total fixture size: ~12 MB raw, ~2.4 MB if gzipped.
 
 ## Running the dogfood test
 
-### Default CI (no plink2 or AT2 needed)
-
 ```bash
 pytest tests/dogfood/ -v
 ```
 
-Always-runnable subset: validates `pgen-samplebind merge` produces
-the expected panel shape (41 samples × 49,382 variants after
-1,236 strand-ambiguous drops), correct FID=POP, populated
-PSEUDOHAPLOID column, preserved cM column in the output `.pvar`.
+Runs all 6 dogfood tests. Each tier-2 / tier-3 test carries its own
+`pytest.skipif(not HAS_PLINK2)` or `pytest.skipif(not HAS_ADMIXTOOLS)`
+guard (see `conftest.py`), so the bare invocation runs whatever your
+machine can — no marker-selector gymnastics required.
 
-### With plink2 on PATH
+| Tier | Verifies | Skips when |
+|---|---|---|
+| 1 — pgen-samplebind only | panel shape (41 samples × 49,382 variants after 1,236 strand-ambiguous drops), FID=POP, PSEUDOHAPLOID populated, cM preserved in `.pvar` | never |
+| 2 — `dogfood_plink2` marker | PFILE → BED conversion + `.bim` schema check (cM column non-zero distinct values, FIDs match populations) | `plink2` not on PATH |
+| 3 — `dogfood_full` marker | full extract_f2 + qpAdm shootout + per-cell numerical compare against `qpadm_reference.tsv` (tolerance 1e-6 on weights, 1e-4 on `p_tail`) | `R` + `admixtools` not available |
 
-```bash
-pytest tests/dogfood/ -v -m "dogfood or dogfood_plink2"
-```
-
-Adds: PFILE → BED conversion + `.bim` schema check (cM column non-zero
-distinct values, FIDs match populations).
-
-### Full pipeline including AT2 R package (external_tool)
-
-```bash
-pytest tests/dogfood/ -v -m "dogfood_full"
-```
-
-Adds: full qpAdm shootout + md5-compare against
-`qpadm_reference.tsv`. Requires `R` with `admixtools` installed
-(typically via the `uqrmaie1/admixtools` GitHub repo).
+To force-run only the tier-3 qpAdm shootout (e.g., for a quick AT2-side
+debug): `pytest tests/dogfood/ -v -m dogfood_full`. The `dogfood` /
+`dogfood_plink2` markers exist for CI status-check naming and intent
+documentation; they don't usefully subset local runs because
+`pytest.skipif` handles tool availability internally.
 
 ## Why this fixture and not synthesized data
 
@@ -132,8 +123,22 @@ We chose the AADR derivative because:
 
 If AADR changes or new pops should be added: `build_fixture.py` walks
 the v62 → v66 Master-ID join, picks samples deterministically (seed
-`0xD06F00D`), and subsets variants. Run on a host that has AADR v66 +
-the v44-era brit_subset locally; not part of any user-facing flow.
+`0xD06F00D`), and subsets variants. Source paths are configured via
+environment variables (no hardcoded local paths in the repo):
+
+```bash
+export PGENSB_DOGFOOD_V66_PREFIX=/path/to/v66.1240K.aadr.PUB
+export PGENSB_DOGFOOD_V62_ANNO=/path/to/v62.0_1240k_public.anno
+export PGENSB_DOGFOOD_V62_PATCHED=/path/to/v62_patched.ind
+export PGENSB_DOGFOOD_BRIT_PREFIX=/path/to/brit_subset
+export PGENSB_DOGFOOD_OUTDIR=./fixture_build    # optional; defaults to ./build
+
+python tests/dogfood/fixtures/build_fixture.py
+```
+
+Run on a host that has AADR v66 + the v44-era brit_subset locally; not
+part of any user-facing flow. The script fails fast (and prints which
+variable is missing) if any of the four required env vars is unset.
 
 The vendored `qpadm_reference.tsv` was generated once with:
 - `mergeit` (EIGENSOFT, from AT2's Docker image)

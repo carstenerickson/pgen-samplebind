@@ -15,9 +15,33 @@ Subsetting strategy:
 - 3 samples per English target pop (3 of 4 pops x 3 = 9 brit_subset samples),
   plus 1 Patterson_England_IA pulled aside as the target sample (4 of 4 pops covered)
 - 50K random autosomal variants (seeded), evenly distributed across chr 1-22
+
+Configuration via environment variables (no hardcoded local paths):
+
+    PGENSB_DOGFOOD_V66_PREFIX    AADR v66.0 PACKEDANCESTRYMAP prefix
+                                 (.geno + .snp + .ind, sample-major)
+    PGENSB_DOGFOOD_V62_ANNO      AADR v62 .anno TSV (for the v62→Master ID
+                                 join; used to resolve a small number of
+                                 sample-ID changes between v62 and v66)
+    PGENSB_DOGFOOD_V62_PATCHED   v62-patched .ind file with corrected
+                                 Patterson_England_IA pop labels
+    PGENSB_DOGFOOD_BRIT_PREFIX   c29i English-targets EIGENSTRAT prefix
+                                 (3 of 4 Patterson_England_* target pops)
+    PGENSB_DOGFOOD_OUTDIR        Where to write the four fixture triplets +
+                                 keep_variants.tsv. Defaults to ./build/.
+
+The fixture-build is a provenance / regeneration step, not part of CI —
+the vendored `panel_v66_subset.*`, `brit_subset_subset.*`,
+`target_individual.*` triplets in this directory are the artifacts CI
+consumes. This script exists so anyone with the source AADR + c29i data
+can independently verify that those vendored triplets follow the
+documented subsetting strategy. Set the five environment variables to
+point at your local AADR v66 + v62 anno + c29i build, then run.
 """
 
+import os
 import random
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -26,11 +50,25 @@ TARGET_VARIANTS = 50_000
 SAMPLES_PER_SOURCE_POP = 4
 SAMPLES_PER_TARGET_POP = 3
 
-V66_PREFIX = "/home/carstenerickson/ancestry/track_e/data_1240k_v66_0/v66.1240K.aadr.PUB"
-V62_ANNO = "/home/carstenerickson/ancestry/track_e/data_1240k_v62_0/v62.0_1240k_public.anno"
-V62_PATCHED = "/home/carstenerickson/ancestry/track_e/data_rung7/v62_patched.ind"
-BRIT_PREFIX = "/home/carstenerickson/ancestry/track_e/data_1240k_c29i/brit_subset"
-OUTDIR = Path("/home/carstenerickson/ancestry/track_e/data_dogfood_fixture")
+_REQUIRED_ENV = {
+    "PGENSB_DOGFOOD_V66_PREFIX": "AADR v66.0 PACKEDANCESTRYMAP prefix",
+    "PGENSB_DOGFOOD_V62_ANNO": "AADR v62 .anno TSV for v62→Master ID join",
+    "PGENSB_DOGFOOD_V62_PATCHED": "v62-patched .ind with corrected pop labels",
+    "PGENSB_DOGFOOD_BRIT_PREFIX": "c29i English-targets EIGENSTRAT prefix",
+}
+_missing = [(k, desc) for k, desc in _REQUIRED_ENV.items() if not os.environ.get(k)]
+if _missing:
+    msg = "missing required environment variable(s):\n"
+    for k, desc in _missing:
+        msg += f"  {k}  ({desc})\n"
+    msg += "See module docstring for the full configuration interface."
+    sys.exit(msg)
+
+V66_PREFIX = os.environ["PGENSB_DOGFOOD_V66_PREFIX"]
+V62_ANNO = os.environ["PGENSB_DOGFOOD_V62_ANNO"]
+V62_PATCHED = os.environ["PGENSB_DOGFOOD_V62_PATCHED"]
+BRIT_PREFIX = os.environ["PGENSB_DOGFOOD_BRIT_PREFIX"]
+OUTDIR = Path(os.environ.get("PGENSB_DOGFOOD_OUTDIR", "./build"))
 
 PATTERSON_SOURCES = [
     "Patterson_WHGA",
