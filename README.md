@@ -265,23 +265,9 @@ ls -la /data/merged.lock     # check lock-file age vs. expected runtime
 rm /data/merged.lock         # only after confirming no live process holds it
 ```
 
-## Dogfood test against published-research workflows
+## Verification
 
-`pgen-samplebind` ships with an AADR-derivative regression test that exercises the full pipeline on real ancient-DNA data:
-
-```bash
-pytest tests/dogfood/ -v
-```
-
-A 44-sample × 50K-variant fixture (Patterson 7-source + 4 English target pops + 1 individual target, drawn from AADR v66 under fair-use for non-commercial scholarly verification — see [tests/dogfood/README.md](tests/dogfood/README.md)) flows through `pgen-samplebind merge` and verifies the result against a vendored mergeit-pipeline reference qpAdm TSV. Three tiers, gated by tool availability:
-
-| Tier | Requires | Verifies |
-|---|---|---|
-| Default | nothing (pgen-samplebind only) | panel shape, cM preservation, FID=POP, PSEUDOHAPLOID column populated |
-| `dogfood_plink2` | `plink2` on PATH | PFILE → BED conversion preserves cM end-to-end |
-| `dogfood_full` | `plink2` + R + `admixtools` | full extract_f2 + qpAdm shootout numerically matches the vendored mergeit reference (tolerance 1e-6 on weights, 1e-4 on p_tail; per-cell, accounting for cross-architecture float-arithmetic noise) |
-
-This is the trust artifact: anyone can clone, run, and verify pgen-samplebind reproduces the established `mergeit + plink2 + AT2` pipeline on a published-research-shape workload, without trusting the maintainer's claims.
+End-to-end byte-equal qpAdm parity against the established `mergeit + plink2 + AdmixTools 2` pipeline is verified on every commit via a vendored AADR-derivative regression test (Patterson 7-source + 4 English target pops + 1 individual target, drawn from AADR v66 under fair-use). The result is the project's trust artifact — anyone can clone, run, and confirm pgen-samplebind reproduces the established pipeline on a published-research-shape workload without trusting the maintainer's claims. See [CONTRIBUTING.md §Dogfood](CONTRIBUTING.md#dogfood--published-research-workflow-regression-test) for run instructions and the three-tier breakdown.
 
 ## Status
 
@@ -291,8 +277,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations
 
 ## Contributing
 
-Issues and pull requests welcome at <https://github.com/carstenerickson/pgen-samplebind/issues>. The project is small and opinionated; substantive scope changes (e.g., multi-allelic merges, dosage data, BFILE output) should start with a design discussion before implementation.
+Issues and pull requests welcome at <https://github.com/carstenerickson/pgen-samplebind/issues>. Dev setup, test-runner conventions, commit + release process, and design philosophy are in [CONTRIBUTING.md](CONTRIBUTING.md). The project is small and opinionated — substantive scope changes (e.g., multi-allelic merges, dosage data, BFILE-only output) should start with a design discussion before implementation.
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).

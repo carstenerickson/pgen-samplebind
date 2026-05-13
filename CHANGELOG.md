@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`CONTRIBUTING.md`** — split contributor-facing material out of the README into a dedicated doc. Covers dev setup, pytest markers + dogfood tier-running instructions, code quality gates (ruff + mypy strict), commit + PR conventions, the tag → OIDC PyPI release procedure, perf-baseline maintenance, and the three-principle design philosophy (correctness first, bounded scope, vectorized hot paths). The README now keeps the user-facing surface (quickstart, install, canonical use cases, subcommand reference, validation gates, exit codes, troubleshooting) and points at CONTRIBUTING.md for dev concerns.
+
 ### Changed
 
 - **Perf benchmark fixture scaled up 10x + baseline recalibrated.** Bumped fixture from 250-sample x 20K-variant x 2-panel (10M genotypes) to 500 x 100K x 2 (100M genotypes); at the smaller scale, fixed overhead (synth, pandas join, RSS sampling) dwarfed the per-row-loop costs that the v0.3 vectorization eliminated, so the gate passed trivially but couldn't detect future regressions in those code paths. The 10x bump makes the alignment and placement loops the dominant cost. First measurement on the new fixture: **70.84 M genotypes/sec** end-to-end (1.41s merge wallclock; 854MB peak RSS on ubuntu-latest). Baseline pinned at 65M g/s (92% of measured) with the existing 0.80 threshold-pct, gating at 52M g/s = 73% of current throughput. Wallclock + RSS ceilings raised proportionally (60s → 120s; 1024MB → 2048MB).
