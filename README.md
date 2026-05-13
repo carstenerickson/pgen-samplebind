@@ -35,7 +35,7 @@ unzip /tmp/plink2.zip -d ~/bin
 plink2 --version  # confirm v2.0.0-a.7.1 (or newer) on PATH
 ```
 
-The `v2.0.0-a.7.x` line introduced the `--eigfile`/`--export eig` support pgen-samplebind shells out to; older versions including `v2.00a5.x` (still shipped by Homebrew at the time of this writing) will silently lack EIGENSTRAT support. PFILE-only workflows have no plink2 dependency.
+The `v2.0.0-a.7.x` line introduced the `--eigfile --make-pgen` path pgen-samplebind shells out to for EIGENSTRAT inputs; older versions including `v2.00a5.x` (still shipped by Homebrew at the time of this writing) will silently lack EIGENSTRAT support. PFILE-only workflows have no plink2 dependency.
 
 ## Canonical use cases
 
@@ -129,7 +129,7 @@ Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion 
 | `--report PATH` | none | Per-variant action TSV (streamed; constant memory) |
 | `--report-json PATH` | none | Run-level summary JSON (~few KB; rows excluded by default) |
 | `--report-json-include-rows` | off | Include per-variant rows in JSON (buffered; warns at >100 MB predicted size) |
-| `--quiet` | off | Suppress progress to stdout |
+| `--quiet` | off | Suppress the stdout summary block and the stderr progress bar |
 | `--block-size N` | `2048` | Variants per pgenlib read block |
 
 ### `validate` — check alignment without writing
@@ -230,13 +230,13 @@ The lock prevents two concurrent invocations from corrupting each other's output
 
 ## Performance
 
-Expected throughput **50-70 M genotypes/sec end-to-end** on a typical Linux x86_64 machine (one core, default `--block-size 2048`), post-v0.3 vectorization. The v0.3.1 CI baseline measured 70.84 M g/s on a 100M-genotype synthetic fixture (`ubuntu-latest`); the perf benchmark gates against regression below 80% of that recorded baseline. For a 700-sample × 1.15M-variant 1240k panel, plan on roughly 15-25 seconds wallclock including pass-1 alignment, pass-2 genotype rewrite, and `.psam` finalization.
+Expected throughput **50-70 M genotypes/sec end-to-end** on a typical Linux x86_64 machine (one core, default `--block-size 2048`), post-v0.3 vectorization. The current CI baseline measured 70.84 M g/s on a 100M-genotype synthetic fixture (`ubuntu-latest`); the perf benchmark gates against regression below 80% of that recorded baseline. For a real-world bind of two 700-sample × 1.15M-variant 1240k panels (~1.6B total genotypes), plan on roughly 25-35 seconds wallclock including pass-1 alignment, pass-2 genotype rewrite, and `.psam` finalization — roughly 20-40% faster than v0.1.
 
 ## Troubleshooting
 
-### "plink2 not found, required for EIGENSTRAT input"
+### "plink2 not found on PATH; required for eigenstrat input"
 
-Install plink2 v2.0.0-a.7.1+ (see [Install](#install)). PFILE-only workflows have no plink2 dependency.
+Install plink2 v2.0.0-a.7.1+ (see [Install](#install)). PFILE-only workflows have no plink2 dependency. The same message appears for BFILE inputs (with "bfile" instead of "eigenstrat").
 
 ### "FID column header on line 1 is not at the beginning"
 

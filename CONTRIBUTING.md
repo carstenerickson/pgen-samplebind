@@ -24,7 +24,9 @@ EIGENSTRAT and BFILE input paths require **plink2 v2.0.0-a.7.1 or newer** on `PA
 # Default suite — fast, no external tools required (~60s)
 pytest tests/ -m "not slow and not external_tool and not dogfood_full"
 
-# Full suite including slow + external-tool-gated tests
+# Full suite — runs everything that's available locally. Tests gated on
+# external tools (mergeit, AdmixTools, R) auto-skip if the tool isn't
+# installed; you don't need to set them all up just to run the suite.
 pytest tests/
 ```
 
