@@ -8,9 +8,9 @@ This doc is descriptive, not prescriptive — it explains the design as it stand
 
 Sample-bind reduces to two passes over the inputs:
 
-**Pass 1 — variant alignment (pandas)**. Read each input's `.pvar`, build a single "alignment table" with one row per canonical (input[0]) variant and per-input columns recording `(action, drop_reason, source_row_idx)`. The action is one of `passthrough` / `swap` / `flip` / `flip_and_swap` / `drop` / `fill_missing` derived from the (canonical-ref, canonical-alt, other-ref, other-alt) tuple. The alignment table is the single source of truth for pass 2 and for reporting.
+**Pass 1 — variant alignment (pandas)**. Read each input's `.pvar` (biallelic-SNP filter applied at parse time in `pvar.read_pvar`); build a single "alignment table" with one row per canonical (input[0]) variant and per-input columns recording `(action, drop_reason, source_row_idx)`. The action is one of `passthrough` / `swap` / `flip` / `flip_and_swap` / `drop` / `fill_missing` derived from the (canonical-ref, canonical-alt, other-ref, other-alt) tuple via the precomputed truth table (see §"The allele-resolution truth table" below). Variants destined to drop are kept as rows in the table — they're not removed, just marked — so the per-variant `--report` TSV can describe what was dropped and why. Reporting layers consume the same table.
 
-**Pass 2 — genotype streaming (pgenlib)**. Open one `pgenlib.PgenReader` per input + one `pgenlib.PgenWriter` for the output. Iterate the alignment table in blocks (default 2048 variants), read the corresponding rows from each input's `.pgen` via `read_list`, apply the per-(variant, input) action vectorized, place into a per-block output buffer respecting the sample-identity plan, and write the buffer via `append_biallelic_batch`. Per-sample heterozygosity counters are updated inline so the orchestrator can classify pseudohaploid status at the end.
+**Pass 2 — genotype streaming (pgenlib)**. Filter the alignment table to its kept subset (`_kept_variants_table`: rows where no input's action is `DROP`). Open one `pgenlib.PgenReader` per input + one `pgenlib.PgenWriter` for the output, sized at the kept-variant count. Iterate the kept table in blocks (default 2048 variants), read the corresponding rows from each input's `.pgen` via `read_list`, apply the per-(variant, input) action vectorized, place into a per-block output buffer respecting the sample-identity plan, and write the buffer via `append_biallelic_batch`. Per-sample heterozygosity counters are updated inline so the orchestrator can classify pseudohaploid status at the end.
 
 The split exists for three reasons:
 
@@ -39,7 +39,9 @@ The split exists for three reasons:
 │ alignment.py    build_alignment_table — pass-1 truth table  │
 │                 + evaluate_pass1_gates + action_histograms  │
 │ formats.py      prepared_input — auto-detect + shell-out to │
-│                 plink2 for BFILE/EIGENSTRAT; ASCII path     │
+│                 plink2 for BFILE / PACKEDANCESTRYMAP        │
+│                 EIGENSTRAT; native parser for ASCII-per-line│
+│                 EIGENSTRAT (plink2 doesn't read it)         │
 │ pvar.py         read_pvar + biallelic filter + chrom cast   │
 │ psam.py         read_psam + resolve_sample_identity         │
 │ pseudohaploid.py classify + update_block + read_sidecar     │
@@ -57,23 +59,23 @@ When making a change, the "scope" of your touch usually predicts the test surfac
 
 Most data flow between layers goes through six dataclasses:
 
-- **`MergePolicy`** (frozen) — every user-tunable flag in one place: `on_mismatch` / `on_missing` / `on_extra` / `on_strand` / `on_collision` / `trust_strand` / `variant_key` / `target_min_call_rate` / `include_chrom` / `population_column` / `id_column` / `block_size` / `extras_warn_threshold` / `validate_strand_fail_pct` / `report_json_include_rows`. The CLI populates it once and passes it down; nothing else creates or mutates it.
+- **`MergePolicy`** (frozen) — every user-tunable behavior flag in one place: `on_mismatch` / `on_missing` / `on_extra` / `on_strand` / `on_collision` / `trust_strand` / `variant_key` / `target_min_call_rate` / `include_chrom` / `population_column` / `id_column` / `block_size` / `extras_warn_threshold` / `validate_strand_fail_pct` / `report_json_include_rows`. The CLI populates it once and passes it down; nothing else creates or mutates it. Note: `variant_key` controls whether alignment matches on `(chrom, pos)` (default) or `id` — same-position variants in different inputs with conflicting IDs need the `chr_pos` mode; cross-version cohort builds where positions may differ between releases need `id`. `include_chrom` defaults to autosomes (1-22); the AFS subcommand has `--include-sex-chrom` to extend to 23/24/25/26 (X/Y/XY/MT) for that specific path.
 
 - **`InputDescriptor`** (frozen) — resolved metadata for one input after format detection: `path` (user's original prefix), `pgen_path` / `pvar_path` / `psam_path` (post-conversion canonical PFILE paths), `fmt`, `n_samples`, `n_variants`, `is_target`, optional `eigfile_tempdir`. BFILE / EIGENSTRAT inputs carry a tempdir handle that lives for the merge's duration; PFILE inputs have `eigfile_tempdir=None`.
 
-- **`SampleIdentityPlan`** (frozen) — output of `psam.resolve_sample_identity`: which input samples survive (`per_input_keep_mask`), where each one lands in the output (`per_input_output_indices`), and the final IID list (`output_iids`). Computed in pass 1 because `PgenWriter` needs the output `sample_ct` at open time.
+- **`SampleIdentityPlan`** (frozen) — output of `psam.resolve_sample_identity`: which input samples survive (`per_input_keep_mask`), where each one lands in the output (`per_input_output_indices`), and the final IID list (`output_iids`). Computed by `run_merge` **before** `merge_inputs` runs (step 10) — `PgenWriter` needs the output `sample_ct` at open time, and the collision-suffix scheme needs to be resolved before pseudohaploid-sidecar overrides are mapped through to output IIDs.
 
 - **`AlignmentSummary`** (mutable) — per-input action counts accumulated during `build_alignment_table`. Flows into the run summary and the report JSON.
 
 - **`MergeContext`** (frozen) — passed to `merge_inputs` as the fourth arg: `policy`, `sample_plan`, `report_tsv_path`, `collect_variant_rows`, `show_progress`. Bundles everything `merge_inputs` needs to do its work without knowing about the broader CLI surface.
 
-- **`MergeCounters`** (mutable) — returned by `merge_inputs` after pass 2. Carries `action_histogram` (8-key per-input summary), `action_histogram_per_chrom` (per-chrom × 8-key, added in v0.2), `intersection_size`, `extras_count`, `per_sample_het` (the heterozygosity counters), `n_output_samples`, `n_output_variants`, optional `variant_rows`. The orchestrator finalizes `.psam` from these counters.
+- **`MergeCounters`** (mutable) — returned by `merge_inputs` after pass 2. Carries `action_histogram` (8-key per-input summary, LLD §2.10 pin), `action_histogram_per_chrom` (per-chrom × 8-key, added in v0.2), `intersection_size`, `extras_count`, `per_sample_het` (a `list[tuple[str, int, int]]` of `(output_iid, het_count, called_count)` in `output_iids` order — fed to `pseudohaploid.classify_all` at step 14), `n_output_samples`, `n_output_variants`, optional `variant_rows` (for `--report-json-include-rows`). The orchestrator combines these counters with the per-input `.psam` DataFrames to finalize the output `.psam`.
 
-The `merge_inputs` writes `.pgen` + `.pvar` only; the orchestrator (`run_merge`) finalizes `.psam`. The split makes `merge_inputs` unit-testable against `MergeCounters` shape without needing `.psam`-parsing assertions.
+`merge_inputs` writes `.pgen` + `.pvar` only; the orchestrator (`run_merge`) finalizes `.psam`. The split makes `merge_inputs` unit-testable against `MergeCounters` shape without needing `.psam`-parsing assertions. Output `.psam` column order is canonical: `FID, IID, SEX, POP, PSEUDOHAPLOID` first (FID-first per plink2 spec — the header line starts with `#FID`), then any extra columns alphabetized.
 
 ## The allele-resolution truth table
 
-Pass-1 classification is the project's biggest hot path — at 1240k × N inputs scale it dominates pre-pass-2 wallclock. v0.3 replaced the per-row Python `for` loop with a precomputed numpy lookup.
+Pass-1 classification was the project's biggest hot path pre-v0.3 — at 1240k × N inputs scale it dominated pre-pass-2 wallclock. v0.3 replaced the per-row Python `for` loop with a precomputed numpy lookup.
 
 **Encoding.** Each nucleotide maps to an int code: `A=0, C=1, G=2, T=3`. Non-ACGT cells (or pandas-NaN from a left-join miss) get code `4`. The 4D `(c_ref, c_alt, o_ref, o_alt)` index has shape `(4, 4, 5, 5) = 400` cells per `trust_strand` setting — canonical is always ACGT (the biallelic-SNP filter in `pvar.read_pvar` enforces this), so its axes are 4-wide; other can be invalid, so its axes are 5-wide.
 
@@ -83,6 +85,17 @@ Pass-1 classification is the project's biggest hot path — at 1240k × N inputs
 
 The truth source is `resolve_alleles` (still kept in `alignment.py` as a single-row reference implementation); the table is just a memoization. If you change `resolve_alleles`, the lookup gets the change automatically on module reload.
 
+**Action collapse on hardcalls (LLD §2.1 pin).** The six `MergeAction` values describe pass-1 intent at full fidelity for reporting, but pass-2 genotype recoding collapses them to just two physical operations on biallelic SNP hardcalls:
+
+| Action | Pass-2 op on (block, sample) genotype |
+|---|---|
+| `PASSTHROUGH`, `STRAND_FLIP` | identity (no recoding) |
+| `REF_ALT_SWAP`, `STRAND_FLIP_AND_SWAP` | `x → 2-x` (preserve `-9` missing) |
+| `FILL_MISSING` | block row pre-filled with `-9`, no read needed |
+| `DROP` | row excluded from the kept-variant subset; no pass-2 work |
+
+`STRAND_FLIP` being identity is the non-obvious bit: complementing both alleles on a biallelic SNP preserves the binary `is_alt` semantic, so the genotype encoding doesn't change — only the .pvar's REF/ALT labels do (and the canonical pvar is what wins for downstream consumers, so we don't even re-emit them). This is why `_apply_actions_and_place` only checks the swap-mask and lets flip-alone fall through to passthrough.
+
 ## Block iteration with chromosome boundaries
 
 `merge._iter_blocks_chrom_aware(alignment_table, block_size)` yields `(start, end)` ranges with two invariants:
@@ -90,18 +103,37 @@ The truth source is `resolve_alleles` (still kept in `alignment.py` as a single-
 1. `end - start <= block_size`
 2. **No block spans a chromosome boundary.**
 
-The chromosome-boundary invariant exists because `pseudohaploid.update_block(block, chrom, ...)` takes a single `chrom` arg and trusts the caller (it's a `nogil` no-op when `chrom > 22` — pseudohaploid status is computed over autosomes only). Splitting at chrom transitions adds ~22 boundary-splits per pass at 1240k scale (negligible cost) and lets pseudohaploid drop the chrom-membership check from the inner loop.
+The chromosome-boundary invariant exists because `pseudohaploid.update_block(block, chrom, ...)` takes a single `chrom` arg and trusts the caller (it skips the update when `chrom > 22` — pseudohaploid status is computed over autosomes only). With the default autosome-only `include_chrom`, splitting at chrom transitions adds at most ~21 boundary-splits per pass at 1240k scale (1→2, 2→3, …, 21→22 = 21 transitions, negligible cost) and lets pseudohaploid drop the chrom-membership check from the inner loop.
 
 If you touch the pass-2 loop in `merge.merge_inputs`, preserve this invariant. The block iterator is the only place enforcing it; everything downstream assumes it.
 
+## The cM preservation chain
+
+Genetic-position values (centiMorgans) travel end-to-end through the merge, not just for ergonomics — downstream Morgan-spaced jackknife consumers (AT2 `extract_f2 blgsize=0.05`) partition variants by cM, so dropping the column would collapse their jackknife block structure and silently bias variance estimates.
+
+Flow: `pvar.read_pvar` parses the optional `CM` column from input `.pvar` (defaults to `0.0` when absent — emitted by plink2's `--eigfile` / `--bfile` converters when the source had cM, omitted otherwise). `alignment.build_alignment_table` carries `cm` on the canonical alignment row. `merge._write_pvar_tsv` emits it back to the output `.pvar`. Plink2's downstream `--make-bed` picks it up automatically.
+
+The dogfood tier-2 test (`test_dogfood_pfile_to_bed_cm_preserved`) gates against regression: it round-trips a fixture through `pgen-samplebind merge` → `plink2 --make-bed` → reads back the `.bim` and asserts the cM column survived nonzero. A change anywhere in this chain that zeros out cM trips that test.
+
+## The pseudohaploid precedence stack
+
+Both `merge` and `afs` apply a 4-tier precedence when deciding per-sample pseudohaploid status (issue #2; v0.2 added the sidecar reader):
+
+1. **`<input_prefix>.pseudohaploid.json` sidecar.** Upstream tools (e.g., pileup-aadr) know per-sample pseudohaploid status by construction; the sidecar lets that authoritative signal flow through. Schema v1: `{"schema_version": 1, "samples": {iid: {"pseudohaploid": 0|1}}}`. Read by `pseudohaploid.read_sidecar(prefix)`.
+2. **Input `.psam` `PSEUDOHAPLOID` column.** Honored by `afs.compute_afs` when present (e.g., panels built by an earlier `pgen-samplebind merge` round-trip). Not honored by `merge` — `merge` re-derives from genotypes by design so that input ground-truth ≠ output detection is a meaningful regression test.
+3. **Heterozygosity-derived inference (`pseudohaploid.classify`)** during pass 2: `het_count == 0` over non-missing autosomal calls → `PSEUDOHAPLOID`; `het_rate ≥ 0.05` → `DIPLOID`; everything in between → `UNKNOWN`. `called_count == 0` boundary → `UNKNOWN` (honest answer when there's no signal).
+4. **All-diploid fallback** (`--no-pseudohaploid-adjust` on AFS) — silently treat every sample as diploid. The user opted out.
+
+Orphan sidecar entries (IIDs in the JSON not present in the input `.psam`) raise `InvariantViolation` (exit 3) rather than being silently ignored — silent ignore would mask upstream / downstream contract drift.
+
 ## Validation gates a/b/c/d
 
-Four soft-validation gates between pass 1 and pass 2 (or, in `validate` mode, the only thing that runs). All exit code 1 when triggered.
+Four data-shape gates that exit 1 (`ValidationError`) when triggered. In `merge` mode gates (a)/(b) run between pass 1 and pass 2 and (c) runs after pass 2; in `validate` mode all four (a)-(d) run, then the orchestrator exits without writing output.
 
 - **(a) Extras.** Variants in input[N] absent from input[0] exceed `--on-extra` threshold (default 10% of input[0]). Catches the input-order-reversed footgun where the smaller panel is placed first and the larger panel's distinct variants silently drop.
 - **(b) Ambiguous-strand drops.** Drops from A/T or C/G ambiguity exceed `--validate-strand-fail-pct` of the alignment **intersection** (default 10%). The intersection denominator is deliberate: catches the wrong-panel pairing case where a tiny intersection × normal drop rate would look fine against a canonical denominator.
 - **(c) Target call rate.** Target's non-missing call count over canonical variants is below `--target-min-call-rate` (default 0.40). Runs only when at least one input has `is_target=True`. v0.2 generalized this to per-target: any failing target trips the gate.
-- **(d) Soft `--on-* error` triggers.** `validate` mode softens `--on-mismatch error` / `--on-missing error` / `--on-extra error` into a count + gate-(d) trigger, rather than aborting at the first hit. This lets `validate` report the full picture instead of fail-fast. In `merge` mode those policies aren't softened — they raise `InvariantViolation` and exit 3.
+- **(d) Soft-error policy triggers — `validate` mode only.** `validate` softens `--on-mismatch error` / `--on-missing error` / `--on-extra error` into a count + gate-(d) trigger via the `soften_policy_errors` flag on `build_alignment_table`, rather than aborting at the first hit. This lets `validate` report the full picture instead of fail-fast. In `merge` mode those policies aren't softened — they raise `InvariantViolation` and exit 3.
 
 Gates (a) and (b) live in `alignment.evaluate_pass1_gates`. Gate (c) lives in `merge._check_target_call_rate` (genotype-dependent, runs after pass 2). Gate (d) is conceptually a post-condition on the `AlignmentSummary.policy_error_triggers` dict populated by `build_alignment_table(soften_policy_errors=True)`.
 
