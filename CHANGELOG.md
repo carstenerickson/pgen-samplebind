@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DEVELOPMENT.md`** — architecture overview for new contributors. Sections: the two-pass merge (pass 1 alignment table, pass 2 streaming); module map with dependency layering (13 modules + 5 subcommands); key data structures (`MergePolicy` / `InputDescriptor` / `SampleIdentityPlan` / `MergeContext` / `MergeCounters` / `AlignmentSummary`); the (4, 4, 5, 5) allele-resolution truth-table lookup (with the trust_strand axis); the chromosome-boundary block-iteration invariant; the four validation gates (a/b/c/d) and their denominator-choice rationale; exit-code / exception hierarchy; pgenlib gotchas (GIL, per-instance state, supported multi-instance threading pattern, buffer shape, multi-allelic SIGSEGV); the 17-step `run_merge` orchestration sequence grouped by phase; the perf-bench loop + the v0.3 vectorization discipline; the three-tier dogfood architecture; pointer to private HLD/LLD without exposing wiki paths. Sits between CONTRIBUTING.md (process) and the LLD (full spec). README + CONTRIBUTING now cross-link to it.
+
 - **`CONTRIBUTING.md`** — split contributor-facing material out of the README into a dedicated doc. Covers dev setup, pytest markers + dogfood tier-running instructions, code quality gates (ruff + mypy strict), commit + PR conventions, the tag → OIDC PyPI release procedure, perf-baseline maintenance, and the three-principle design philosophy (correctness first, bounded scope, vectorized hot paths). The README now keeps the user-facing surface (quickstart, install, canonical use cases, subcommand reference, validation gates, exit codes, troubleshooting) and points at CONTRIBUTING.md for dev concerns.
 
 ### Changed

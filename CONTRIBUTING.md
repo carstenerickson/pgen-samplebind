@@ -2,7 +2,7 @@
 
 The project is small and opinionated. Substantive scope changes (multi-allelic merges, dosage data, BFILE-only output, etc.) should start with a design discussion on a [GitHub issue](https://github.com/carstenerickson/pgen-samplebind/issues) before implementation — the scope is deliberately bounded to the sample-bind operation and we want to keep it that way.
 
-For bug reports, small fixes, and additive improvements, a PR is the right next step.
+For bug reports, small fixes, and additive improvements, a PR is the right next step. Before touching the merge hot path or anything cross-cutting (validation gates, exit-code mapping, pgenlib invocations), read [DEVELOPMENT.md](DEVELOPMENT.md) — it's the architecture tour that explains how the layers compose.
 
 ## Dev setup
 

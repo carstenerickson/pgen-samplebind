@@ -289,7 +289,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations
 
 ## Contributing
 
-Issues and pull requests welcome at <https://github.com/carstenerickson/pgen-samplebind/issues>. Dev setup, test-runner conventions, commit + release process, and design philosophy are in [CONTRIBUTING.md](CONTRIBUTING.md). The project is small and opinionated — substantive scope changes (e.g., multi-allelic merges, dosage data, BFILE-only output) should start with a design discussion before implementation.
+Issues and pull requests welcome at <https://github.com/carstenerickson/pgen-samplebind/issues>. Dev setup, test-runner conventions, commit + release process, and design philosophy are in [CONTRIBUTING.md](CONTRIBUTING.md); the architecture tour for new contributors is in [DEVELOPMENT.md](DEVELOPMENT.md). The project is small and opinionated — substantive scope changes (e.g., multi-allelic merges, dosage data, BFILE-only output) should start with a design discussion before implementation.
 
 ## License
 
