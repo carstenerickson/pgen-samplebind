@@ -2,7 +2,7 @@
 
 Architecture overview for new contributors. Read this once to orient on how the code fits together, then use [CONTRIBUTING.md](CONTRIBUTING.md) for the day-to-day process (dev setup, test markers, commit conventions, release flow).
 
-This doc is descriptive, not prescriptive — it explains the design as it stands rather than enumerating rules. The full implementation spec (function-by-function signatures, every LLD pin and rationale) lives in the maintainer's private design docs; everything load-bearing for understanding a contribution should be summarized here.
+This doc is descriptive, not prescriptive — it explains the design as it stands rather than enumerating rules. Everything load-bearing for understanding a contribution should be captured here or in the code's docstrings. If you hit a design decision that neither explains, that's a doc bug — file an issue.
 
 ## The two-pass merge
 
@@ -75,7 +75,15 @@ Most data flow between layers goes through six dataclasses:
 
 - **`MergeContext`** (frozen) — passed to `merge_inputs` as the fourth arg: `policy`, `sample_plan`, `report_tsv_path`, `collect_variant_rows`, `show_progress`. Bundles everything `merge_inputs` needs to do its work without knowing about the broader CLI surface.
 
-- **`MergeCounters`** (mutable) — returned by `merge_inputs` after pass 2. Carries `action_histogram` (8-key per-input summary, LLD §2.10 pin), `action_histogram_per_chrom` (per-chrom × 8-key, added in v0.2), `intersection_size`, `extras_count`, `per_sample_het` (a `list[tuple[str, int, int]]` of `(output_iid, het_count, called_count)` in `output_iids` order — fed to `pseudohaploid.classify_all` at step 14), `n_output_samples`, `n_output_variants`, optional `variant_rows` (for `--report-json-include-rows`). The orchestrator combines these counters with the per-input `.psam` DataFrames to finalize the output `.psam`.
+- **`MergeCounters`** (mutable) — returned by `merge_inputs` after pass 2. Carries:
+  - `action_histogram`: per-input 8-key summary — `passthrough` / `swap` / `flip` / `fill_missing` / `dropped_ambiguous_strand` / `dropped_allele_mismatch` / `pre_alignment_filter_dropped` / `drop` (the last is the residual bucket for `ON_MISSING_DROP_VARIANT` drops). All 8 keys are always present in the emitted JSON so workflow consumers can rely on the schema regardless of merge outcome — don't drop or rename a key without auditing the report-JSON consumers.
+  - `action_histogram_per_chrom`: per-chrom × 8-key breakdown (added in v0.2 for diagnostic surfacing in `--report-json`).
+  - `intersection_size`, `extras_count`: pass-1 alignment-table counts.
+  - `per_sample_het`: a `list[tuple[str, int, int]]` of `(output_iid, het_count, called_count)` in `output_iids` order — fed to `pseudohaploid.classify_all` at step 14.
+  - `n_output_samples`, `n_output_variants`: bookkeeping.
+  - `variant_rows`: optional, populated only when `--report-json-include-rows`.
+
+  The orchestrator combines these counters with the per-input `.psam` DataFrames to finalize the output `.psam`.
 
 `merge_inputs` writes `.pgen` + `.pvar` only; the orchestrator (`run_merge`) finalizes `.psam`. The split makes `merge_inputs` unit-testable against `MergeCounters` shape without needing `.psam`-parsing assertions. Output `.psam` column order is canonical: `FID, IID, SEX, POP, PSEUDOHAPLOID` first (FID-first per plink2 spec — the header line starts with `#FID`), then any extra columns alphabetized.
 
@@ -91,7 +99,7 @@ Pass-1 classification was the project's biggest hot path pre-v0.3 — at 1240k �
 
 The truth source is `resolve_alleles` (still kept in `alignment.py` as a single-row reference implementation); the table is just a memoization. If you change `resolve_alleles`, the lookup gets the change automatically on module reload.
 
-**Action collapse on hardcalls (LLD §2.1 pin).** The six `MergeAction` values describe pass-1 intent at full fidelity for reporting, but pass-2 genotype recoding collapses them to just two physical operations on biallelic SNP hardcalls:
+**Action collapse on hardcalls.** This is a design contract — changing it would silently corrupt cross-source merges where strand-flip-alone appears. The six `MergeAction` values describe pass-1 intent at full fidelity for reporting, but pass-2 genotype recoding collapses them to just two physical operations on biallelic SNP hardcalls:
 
 | Action | Pass-2 op on (block, sample) genotype |
 |---|---|
@@ -192,7 +200,7 @@ The pgenlib API behavior is documented in [`pgenlib`'s `python_api.txt`](https:/
 
 ## The 17-step merge orchestration
 
-`commands/merge_cmd.py` is the canonical example of how the layers compose. The step numbers come from the LLD; gaps in the numbering exist for historical reasons (some steps were merged or moved as the design firmed up). Grouped by phase:
+`commands/merge_cmd.py` is the canonical example of how the layers compose. The step numbers below match the `# Step N:` comments in that file (search for them to jump to each step's implementation); gaps in the numbering exist for historical reasons — some steps were merged or moved as the design firmed up — but the numbers are stable between the code and this doc. Grouped by phase:
 
 **Setup (steps 1-3).** Build `MergePolicy` from CLI args. Acquire `output_lock(output_prefix)` as the FIRST entrant on the ExitStack so a held lock fails out before any input is touched.
 
@@ -246,8 +254,6 @@ Tier 3 is what gives the "byte-equal qpAdm parity" claim teeth. The reference TS
 
 When making a change that touches pass-1 alignment, pass-2 streaming, or any policy that affects the output `.pgen` / `.pvar`: dogfood's tier-3 result is the regression bar. If you can't get plink2 + R + admixtools installed locally, that's fine — the CI `dogfood` job runs all three tiers on every commit.
 
-## Where the full design docs live
+## When in doubt, file an issue
 
-The HLD (high-level design) and LLD (low-level design) are maintained in a private wiki rather than in the repo. They contain the open-questions audit trail, every LLD pin's rationale, and the full §5 test-mapping table. For most contributions you don't need them — DEVELOPMENT.md captures what's load-bearing for understanding the code, and CONTRIBUTING.md captures the process.
-
-If a change feels like it's bumping into design intent you don't have context for, file an issue first. Scope-fit + design-intent calls are easier to make together than to litigate at PR review.
+If a change feels like it's bumping into design intent you don't have context for — a contract this doc didn't explain, an invariant the code asserts but the rationale isn't obvious, a scope-fit call that's borderline — file an issue first. Scope-fit + design-intent calls are easier to make together than to litigate at PR review, and the resolution is a candidate for a follow-up edit to this doc so the next contributor doesn't hit the same gap.
