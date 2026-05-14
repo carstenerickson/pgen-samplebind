@@ -126,7 +126,7 @@ def compute_afs(
                 status = sidecar.get(iid)
                 if status is None:
                     continue
-                is_pseudohap_per_sample[i] = 1 if status is PseudohaploidStatus.PSEUDOHAPLOID else 0
+                is_pseudohap_per_sample[i] = 1 if status == PseudohaploidStatus.PSEUDOHAPLOID else 0
 
     # 2. Resolve population subset.
     all_pops = sorted(set(pop_per_sample.tolist()))
@@ -275,14 +275,14 @@ def write_afs_tsvs(result: AfsResult, outdir: Path) -> dict[str, Path]:
     counts_path = outdir / "afs_counts.tsv"
     try:
         result.snp.to_csv(snp_path, sep="\t", index=False, lineterminator="\n")
-        _write_freq_tsv_fast(result.freq, freq_path)
+        _write_freq_tsv(result.freq, freq_path)
         result.counts.to_csv(counts_path, sep="\t", index=False, lineterminator="\n")
     except OSError as e:
         raise IOFailure(f"cannot write AFS TSVs to {outdir}: {e}") from e
     return {"snp": snp_path, "freq": freq_path, "counts": counts_path}
 
 
-def _write_freq_tsv_fast(freq_df: pd.DataFrame, path: Path) -> None:
+def _write_freq_tsv(freq_df: pd.DataFrame, path: Path) -> None:
     """numpy-vectorized float-to-string for the freq table; ~50x faster than
     pandas `to_csv(float_format=...)` at 1240k scale (single-threaded printf
     per cell vs C-level batched format)."""
@@ -294,7 +294,7 @@ def _write_freq_tsv_fast(freq_df: pd.DataFrame, path: Path) -> None:
     n_rows = freq_values.shape[0]
     # Build the body lines in chunks to bound peak memory at 1240k scale.
     chunk = 50_000
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write("variant_id\t" + "\t".join(pop_cols) + "\n")
         for start in range(0, n_rows, chunk):
             end = min(start + chunk, n_rows)

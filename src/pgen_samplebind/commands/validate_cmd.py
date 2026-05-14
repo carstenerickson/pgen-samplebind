@@ -20,11 +20,11 @@ from ..alignment import (
     build_alignment_table,
     compute_intersection_size,
     count_kept_variants,
+    emit_extras_warning,
     evaluate_pass1_gates,
-    warn_extras_threshold,
 )
 from ..pvar import check_max_alleles
-from ..types import AlignmentSummary, MergeCounters, MergePolicy
+from ..types import AlignmentSummary, InputDescriptor, MergeCounters, MergePolicy
 
 
 def run_validate(
@@ -37,11 +37,7 @@ def run_validate(
     relabel_input_col: str | None = None,
     relabel_output_col: str | None = None,
 ) -> None:
-    """Validate subcommand orchestrator. Per LLD §4.2.
-
-    Day 4: works for PFILE inputs end-to-end. BFILE/EIGENSTRAT deferred to
-    Day 6 (same shell-out path as merge).
-    """
+    """Validate subcommand orchestrator. Per LLD §4.2."""
     started = time.perf_counter()
 
     with ExitStack() as stack:
@@ -97,7 +93,7 @@ def run_validate(
         )
 
         # Step 10: extras warning
-        warn_extras_threshold(
+        emit_extras_warning(
             summary.n_extras_dropped,
             len(pvars[0]),
             policy.extras_warn_threshold,
@@ -166,7 +162,7 @@ def run_validate(
 
 def _format_validate_stdout(
     counters: MergeCounters,
-    descriptors: list,  # type: ignore[type-arg]
+    descriptors: list[InputDescriptor],
     summary: AlignmentSummary,
     policy: MergePolicy,
     elapsed_s: float,

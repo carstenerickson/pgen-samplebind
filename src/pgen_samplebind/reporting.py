@@ -18,6 +18,7 @@ from typing import Any
 
 import pandas as pd
 
+from . import pseudohaploid as _pseudohaploid_mod
 from .types import (
     InputDescriptor,
     MergeCounters,
@@ -103,14 +104,8 @@ def format_stdout_summary(
     lines.append("Pseudohaploid mix (output):")
     pseudo: dict[str, int] = {"1": 0, "0": 0, "U": 0}
     for _, h, c in counters.per_sample_het:
-        if c == 0:
-            pseudo["U"] += 1
-        elif h == 0:
-            pseudo["1"] += 1
-        elif h / c >= 0.05:
-            pseudo["0"] += 1
-        else:
-            pseudo["U"] += 1
+        status = _pseudohaploid_mod.classify(h, c)
+        pseudo[status.value] += 1
     lines.append(
         f"  {pseudo['1']:,} pseudohaploid, {pseudo['0']:,} diploid, {pseudo['U']:,} unknown"
     )
@@ -355,12 +350,6 @@ def _pseudohaploid_summary(counters: MergeCounters) -> dict[str, int]:
         PseudohaploidStatus.UNKNOWN.value: 0,
     }
     for _, h, c in counters.per_sample_het:
-        if c == 0:
-            out["U"] += 1
-        elif h == 0:
-            out["1"] += 1
-        elif h / c >= 0.05:
-            out["0"] += 1
-        else:
-            out["U"] += 1
+        status = _pseudohaploid_mod.classify(h, c)
+        out[status.value] += 1
     return out

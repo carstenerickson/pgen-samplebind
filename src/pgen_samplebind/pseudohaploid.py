@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 
 from .errors import IOFailure, UsageError
+from .formats import strip_known_suffix
 from .types import PseudohaploidStatus
 
 _DIPLOID_HET_RATE_THRESHOLD = 0.05  # ≥ 5% het rate → diploid
@@ -122,11 +123,6 @@ def read_sidecar(prefix: Path) -> dict[str, PseudohaploidStatus] | None:
             missing `samples`; per-sample entry missing the `pseudohaploid`
             field or carrying a value outside {0, 1}.
     """
-    # Late import to avoid a circular dependency (formats imports nothing
-    # from pseudohaploid, but keeping the import local is cheaper than
-    # restructuring).
-    from .formats import strip_known_suffix
-
     base = strip_known_suffix(prefix)
     sidecar_path = Path(str(base) + _SIDECAR_SUFFIX)
     if not sidecar_path.exists():

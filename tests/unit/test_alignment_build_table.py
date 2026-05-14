@@ -176,7 +176,7 @@ class TestComputeIntersectionSize:
 
 
 class TestBuildActionHistogram:
-    def test_eight_keys_always_present(
+    def test_histogram_keys_always_present(
         self, policy: MergePolicy, summary: AlignmentSummary
     ) -> None:
         canonical = _pvar_df([1], [100], ["a"], ["A"], ["G"])
@@ -189,6 +189,7 @@ class TestBuildActionHistogram:
             "fill_missing",
             "dropped_ambiguous_strand",
             "dropped_allele_mismatch",
+            "dropped_on_strand",
             "pre_alignment_filter_dropped",
             "drop",
         }

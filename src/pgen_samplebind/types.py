@@ -48,6 +48,7 @@ class DropReason(Enum):
     AMBIGUOUS_STRAND = "ambiguous_strand"
     ALLELE_MISMATCH = "allele_mismatch"
     ON_MISSING_DROP_VARIANT = "on_missing_drop"
+    ON_STRAND_DROP = "on_strand_drop"
     NON_BIALLELIC = "non_biallelic"
     NON_SNP = "non_snp"
     PRE_ALIGNMENT_OTHER = "pre_alignment_other"
@@ -128,52 +129,8 @@ class MergePolicy:
 
 
 # -----------------------------------------------------------------------------
-# Variant + sample views (LLD §2.5, §2.6)
-# -----------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class VariantRow:
-    """Typed handle on a single canonical variant. Bulk pass-1 representation
-    is a pandas DataFrame; this dataclass wraps a single row when a typed
-    handle is needed."""
-
-    canonical_idx: int
-    chrom: int
-    pos: int
-    variant_id: str
-    ref: str
-    alt: str
-
-
-@dataclass(slots=True)
-class SampleRecord:
-    """Logical view of one .psam row."""
-
-    iid: str
-    fid: str
-    sex: int  # plink convention: 0=unknown, 1=male, 2=female
-    pop: str
-    pseudohaploid: PseudohaploidStatus = PseudohaploidStatus.UNKNOWN
-    extra_cols: dict[str, str] = field(default_factory=dict)
-    source_input_idx: int = -1
-
-
-# -----------------------------------------------------------------------------
 # Run summary (LLD §2.7)
 # -----------------------------------------------------------------------------
-
-
-@dataclass(slots=True)
-class PerInputSummary:
-    descriptor: InputDescriptor
-    n_samples: int
-    n_variants_pre_filter: int
-    n_variants_post_filter: int
-    n_populations: int
-    largest_population: tuple[str, int]
-    pseudohaploid_counts: dict[PseudohaploidStatus, int] = field(default_factory=dict)
-    sex_counts: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -189,24 +146,6 @@ class AlignmentSummary:
     n_extras_dropped: int = 0
     n_pre_alignment_filter_dropped: int = 0
     policy_error_triggers: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class RunSummary:
-    """Top-level run summary; serialized to JSON by --report-json."""
-
-    inputs: list[PerInputSummary] = field(default_factory=list)
-    alignment: AlignmentSummary = field(default_factory=AlignmentSummary)
-    output_n_samples: int = 0
-    output_n_variants: int = 0
-    output_populations: dict[str, int] = field(default_factory=dict)
-    output_pseudohaploid: dict[PseudohaploidStatus, int] = field(default_factory=dict)
-    iid_collisions: list[str] = field(default_factory=list)
-    psam_column_conflicts: list[tuple[str, int]] = field(default_factory=list)
-    output_paths: dict[str, Path] = field(default_factory=dict)
-    elapsed_s: float = 0.0
-    pgen_samplebind_version: str = ""
-    plink2_version: str | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -292,3 +231,6 @@ class MergeContext:
     # Set by `run_merge` to `not quiet and sys.stderr.isatty()` so workflow
     # managers (piped stderr) and `--quiet` runs stay silent.
     show_progress: bool = False
+    # Passed from the CLI --quiet flag so merge_inputs can suppress advisory
+    # stderr warnings (e.g., extras-count threshold) consistently.
+    quiet: bool = False

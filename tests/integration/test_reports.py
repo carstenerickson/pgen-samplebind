@@ -148,7 +148,8 @@ class TestMergeReportJsonSummaryOnly:
         assert payload["output"]["n_variants"] == 50
         assert payload["alignment"]["action_histogram"]["passthrough"] == 50
 
-        # All 8 HLD-pinned action_histogram keys present
+        # All action_histogram keys always present (including dropped_on_strand
+        # added when --on-strand drop/error is used).
         expected = {
             "passthrough",
             "swap",
@@ -156,6 +157,7 @@ class TestMergeReportJsonSummaryOnly:
             "fill_missing",
             "dropped_ambiguous_strand",
             "dropped_allele_mismatch",
+            "dropped_on_strand",
             "pre_alignment_filter_dropped",
             "drop",
         }

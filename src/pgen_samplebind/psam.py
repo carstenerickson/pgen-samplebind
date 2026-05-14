@@ -1,8 +1,7 @@
 """.psam parsing, population-column auto-detect, sample identity resolution,
 column union, write.
 
-Per LLD §3.5. Day 1: read paths. Day 3: resolve_sample_identity, merge_psams,
-write_psam. --on-collision suffix and --relabel-from deferred to later days.
+Per LLD §3.5.
 """
 
 from __future__ import annotations
@@ -364,9 +363,9 @@ def merge_psams(
 ) -> pd.DataFrame:
     """Concatenate psams using the resolved sample identity, with column union.
 
-    Day 3: simple concat with NA fill across input column unions. Conflict
-    detection (same column name, conflicting values for shared samples) is
-    deferred to Day 4 reporting work.
+    Simple concat with NA fill across the per-input column union. Conflicting
+    values for the same column across inputs are not currently detected; the
+    first (lowest-index) input's value wins via concat ordering.
 
     Returns a DataFrame with `len(sample_plan.output_iids)` rows in the
     output_iids order.
@@ -376,9 +375,8 @@ def merge_psams(
         kept.append(psam.iloc[keep_mask].reset_index(drop=True))
     merged = pd.concat(kept, ignore_index=True, sort=False)
 
-    # Replace IIDs with the (possibly renamed-via-suffix-future) output_iids,
-    # in case sample_plan introduces suffixes. Day 3 uses identity for first/
-    # error policies, so this is a no-op here.
+    # Replace IIDs with the (possibly suffix-renamed) output_iids from the
+    # sample plan so --on-collision suffix renames flow through to the psam.
     merged["IID"] = list(sample_plan.output_iids)
     return merged
 

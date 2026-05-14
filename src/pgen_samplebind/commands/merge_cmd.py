@@ -207,6 +207,7 @@ def run_merge(
             report_tsv_path=report_path,
             collect_variant_rows=(policy.report_json_include_rows and report_json_path is not None),
             show_progress=(not quiet and sys.stderr.isatty()),
+            quiet=quiet,
         )
 
         # Steps 12-15: merge_inputs + psam finalization, wrapped in the

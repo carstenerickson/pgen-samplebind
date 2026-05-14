@@ -5,14 +5,6 @@ Per LLD §3.10 and HLD §Module orchestration. The HLD-pinned signature
 `merge_inputs(inputs, out_pgen_path, out_pvar_path, options) -> MergeCounters`
 encapsulates pass 1 + gates + pass 2 in a single call; the orchestrator
 finalizes `.psam` from the returned MergeCounters.
-
-Day 3 scope: end-to-end PFILE merge for the simple cases. Deferred:
-- ctx.report_tsv_path streaming → Day 4
-- ctx.collect_variant_rows → Day 4
-- gate (c) target call rate is checked post-pass-2 (HLD §Exit-1 validation
-  gates (c)). Detected by descriptor.is_target; uses canonical variant
-  count as denominator and the per_sample_het called_count as numerator.
-- Output cleanup wrapper → Day 6 (orchestrator-side)
 """
 
 from __future__ import annotations
@@ -31,8 +23,8 @@ from .alignment import (
     build_action_histogram_per_chrom,
     build_alignment_table,
     compute_intersection_size,
+    emit_extras_warning,
     evaluate_pass1_gates,
-    warn_extras_threshold,
 )
 from .errors import IOFailure, ValidationError
 from .types import (
@@ -293,11 +285,11 @@ def merge_inputs(
     # ValidationError that the gate then raises). Warning is suppressed
     # under --on-extra drop (user has opted into "extras are intentional").
     if ctx.policy.on_extra == "warn":
-        warn_extras_threshold(
+        emit_extras_warning(
             summary.n_extras_dropped,
             len(canonical_pvar),
             ctx.policy.extras_warn_threshold,
-            quiet=False,
+            quiet=ctx.quiet,
         )
     evaluate_pass1_gates(alignment_table, summary, ctx.policy, is_validate_mode=False)
 

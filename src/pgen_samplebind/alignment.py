@@ -218,6 +218,29 @@ def _classify_block_vectorized(
                 f"merge to proceed; the per-variant report (--report PATH) details which."
             )
 
+    # --on-strand policy on STRAND_FLIP / STRAND_FLIP_AND_SWAP rows.
+    # Default "flip": leave these actions as-is (complement and recode in pass 2).
+    # "drop": discard variants requiring a strand flip.
+    # "error": treat strand-flip-required as a hard error (softened in validate mode).
+    if policy.on_strand != "flip":
+        flip_mask = (actions == MergeAction.STRAND_FLIP.value) | (
+            actions == MergeAction.STRAND_FLIP_AND_SWAP.value
+        )
+        if flip_mask.any():
+            if policy.on_strand == "drop":
+                actions[flip_mask] = MergeAction.DROP.value
+                reasons[flip_mask] = DropReason.ON_STRAND_DROP.value
+            elif policy.on_strand == "error":
+                count = int(flip_mask.sum())
+                if soften_policy_errors:
+                    triggers["on_strand_count"] += count
+                else:
+                    raise InvariantViolation(
+                        f"--on-strand error: {count} variant(s) in input[{input_idx}] require "
+                        f"a strand complement. Use --on-strand flip (default; complement and "
+                        f"keep) or --on-strand drop (remove flip-required variants)."
+                    )
+
     return actions, reasons
 
 
@@ -365,7 +388,7 @@ def compute_intersection_size(table: pd.DataFrame) -> int:
     return int(has_match.sum())
 
 
-def warn_extras_threshold(
+def emit_extras_warning(
     n_extras: int,
     n_canonical: int,
     threshold_fraction: float,
@@ -447,6 +470,8 @@ def evaluate_pass1_gates(
             msg_parts.append(f"{triggers['on_missing_count']} on-missing trigger(s)")
         if policy.on_extra == "error" and triggers.get("on_extra_count", 0) > 0:
             msg_parts.append(f"{triggers['on_extra_count']} on-extra trigger(s)")
+        if policy.on_strand == "error" and triggers.get("on_strand_count", 0) > 0:
+            msg_parts.append(f"{triggers['on_strand_count']} on-strand trigger(s)")
         if msg_parts:
             raise ValidationError(
                 f"gate (d): policy-error conditions would have fired in merge mode: "
@@ -472,8 +497,9 @@ def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
         "fill_missing": 0,
         "dropped_ambiguous_strand": 0,
         "dropped_allele_mismatch": 0,
+        "dropped_on_strand": 0,  # --on-strand drop (non-ambiguous variants requiring flip)
         "pre_alignment_filter_dropped": 0,
-        "drop": 0,  # residual: --on-missing drop_variant per LLD §2.10 mapping
+        "drop": 0,  # residual: --on-missing drop_variant
     }
 
     action_cols = [c for c in alignment_table.columns if c.startswith("action_input_")]
@@ -498,6 +524,9 @@ def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
             )
             histogram["dropped_allele_mismatch"] += int(
                 (reasons == DropReason.ALLELE_MISMATCH.value).sum()
+            )
+            histogram["dropped_on_strand"] += int(
+                (reasons == DropReason.ON_STRAND_DROP.value).sum()
             )
             histogram["pre_alignment_filter_dropped"] += int(
                 (
