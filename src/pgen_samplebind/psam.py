@@ -89,6 +89,29 @@ def detect_population_column(df: pd.DataFrame, override: str | None) -> str:
     )
 
 
+def try_detect_population_column(df: pd.DataFrame, override: str | None) -> str | None:
+    """Same lookup as detect_population_column, but return None instead of raising
+    InvariantViolation when no fallback matches and no override is given.
+
+    A bad `--population-column` value still raises UsageError — that's a user
+    typo, distinct from "this .psam genuinely has no population column."
+    Used by `validate --no-population-column` (issue #3): a single-sample
+    user PFILE intersected with a reference panel only has `[IID, SEX]` by
+    construction; populations are an *output* of downstream ancestry
+    classification, not a user input.
+    """
+    if override is not None:
+        if override not in df.columns:
+            raise UsageError(
+                f"--population-column {override!r} not present in .psam columns: {list(df.columns)}"
+            )
+        return override
+    for candidate in _POP_COLUMN_FALLBACKS:
+        if candidate in df.columns:
+            return candidate
+    return None
+
+
 def rename_to_pop(df: pd.DataFrame, source_col: str) -> pd.DataFrame:
     """Rename `source_col` to 'POP'. No-op if already 'POP'."""
     if source_col == "POP":

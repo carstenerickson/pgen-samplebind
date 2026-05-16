@@ -16,6 +16,7 @@ from pgen_samplebind.psam import (
     add_fid_from_pop,
     detect_population_column,
     rename_to_pop,
+    try_detect_population_column,
 )
 
 
@@ -70,6 +71,24 @@ class TestDetectPopulationColumnNoMatch:
         df = pd.DataFrame({"IID": ["a"], "SEX": ["1"]})
         with pytest.raises(InvariantViolation, match="no population column"):
             detect_population_column(df, override=None)
+
+
+class TestTryDetectPopulationColumn:
+    """Non-raising lookup used by `validate --no-population-column` (issue #3)."""
+
+    def test_returns_pop_when_present(self) -> None:
+        df = pd.DataFrame({"IID": ["a"], "POP": ["x"]})
+        assert try_detect_population_column(df, override=None) == "POP"
+
+    def test_returns_none_when_no_fallback(self) -> None:
+        df = pd.DataFrame({"IID": ["GFX0442453"], "SEX": ["1"]})
+        assert try_detect_population_column(df, override=None) is None
+
+    def test_bad_override_still_raises(self) -> None:
+        """A typoed --population-column is a user error, not a missing column."""
+        df = pd.DataFrame({"IID": ["a"], "SEX": ["1"]})
+        with pytest.raises(UsageError, match="not present"):
+            try_detect_population_column(df, override="NoSuchColumn")
 
 
 class TestRenameToPop:

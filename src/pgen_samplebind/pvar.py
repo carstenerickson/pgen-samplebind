@@ -5,11 +5,53 @@ Per LLD §3.4. Pandas-driven for the speed and memory wins documented in the pge
 
 from __future__ import annotations
 
+import io
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import IO
 
 import pandas as pd
 
 from .errors import InvariantViolation, IOFailure
+
+
+def is_zst_path(path: Path) -> bool:
+    """True if path ends in `.zst` (a zstd-compressed file).
+
+    Used to gate decompression. Plink2 v2.0.0-a.6+ and reference panels
+    distributed via HuggingFace / Dataverse routinely ship `.pvar.zst`
+    rather than uncompressed `.pvar` (cuts ~10x file size for typical
+    HGDP+1kGP panels).
+    """
+    return path.suffix == ".zst"
+
+
+@contextmanager
+def open_pvar_text(path: Path) -> Iterator[IO[str]]:
+    """Open a `.pvar` or `.pvar.zst` as a text-mode line iterator.
+
+    Streams zstandard decompression so we don't materialize the
+    uncompressed file in memory. Used by `count_raw_variants` and
+    `_find_header_line`; `read_pvar` uses pandas's built-in compression
+    handling instead, since it pipes directly into the C parser.
+
+    Raises:
+        IOFailure: path unreadable.
+    """
+    try:
+        if is_zst_path(path):
+            import zstandard
+
+            with open(path, "rb") as raw:
+                stream = zstandard.ZstdDecompressor().stream_reader(raw)
+                yield io.TextIOWrapper(stream, encoding="utf-8")
+        else:
+            with open(path, encoding="utf-8") as f:
+                yield f
+    except OSError as e:
+        raise IOFailure(f"cannot read {path}: {e}") from e
+
 
 _VALID_NUCLEOTIDES = frozenset({"A", "C", "G", "T"})
 
@@ -96,16 +138,13 @@ def count_raw_variants(path: Path) -> int:
     """Pre-filter row count of a .pvar (data lines, excluding header lines).
 
     Header lines are any line starting with `#` (both `##`-prefixed metadata
-    and the single-`#` column header).
+    and the single-`#` column header). Accepts `.pvar` or `.pvar.zst`.
     """
     n = 0
-    try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if not line.startswith("#"):
-                    n += 1
-    except OSError as e:
-        raise IOFailure(f"cannot read {path}: {e}") from e
+    with open_pvar_text(path) as f:
+        for line in f:
+            if not line.startswith("#"):
+                n += 1
     return n
 
 
@@ -113,15 +152,13 @@ def _find_header_line(path: Path) -> int:
     """Locate the line index (0-based) of the `#CHROM` header in a .pvar.
 
     Plink2 .pvar files may have ``##``-prefixed metadata lines before the
-    column header (which starts with a single `#`).
+    column header (which starts with a single `#`). Accepts `.pvar` or
+    `.pvar.zst`.
     """
-    try:
-        with open(path, encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if line.startswith("#CHROM"):
-                    return i
-    except OSError as e:
-        raise IOFailure(f"cannot read {path}: {e}") from e
+    with open_pvar_text(path) as f:
+        for i, line in enumerate(f):
+            if line.startswith("#CHROM"):
+                return i
     raise IOFailure(f"no #CHROM header found in {path}")
 
 
@@ -140,15 +177,17 @@ def read_pvar(path: Path) -> pd.DataFrame:
         IOFailure: file unreadable or unparseable.
     """
     header_idx = _find_header_line(path)
+    read_csv_kwargs: dict[str, object] = dict(
+        sep="\t",
+        skiprows=header_idx,
+        header=0,
+        dtype=str,  # parse everything as string first; we'll cast
+        na_filter=False,
+    )
+    if is_zst_path(path):
+        read_csv_kwargs["compression"] = "zstd"
     try:
-        df = pd.read_csv(
-            path,
-            sep="\t",
-            skiprows=header_idx,
-            header=0,
-            dtype=str,  # parse everything as string first; we'll cast
-            na_filter=False,
-        )
+        df = pd.read_csv(path, **read_csv_kwargs)  # type: ignore[call-overload]
     except (OSError, pd.errors.ParserError) as e:
         raise IOFailure(f"cannot parse {path}: {e}") from e
 
@@ -245,7 +284,14 @@ def check_max_alleles(pgen_path: Path) -> None:
     """
     import pgenlib  # lazy import; pgenlib's load is non-trivial
 
-    pvar_path = pgen_path.with_suffix(".pvar")
+    # Plink2 may emit either `.pvar` or `.pvar.zst` next to the .pgen; pgenlib's
+    # PvarReader handles both transparently (libzstd-linked at the C layer).
+    base = pgen_path.with_suffix("")
+    pvar_path = Path(str(base) + ".pvar")
+    if not pvar_path.exists():
+        zst_path = Path(str(base) + ".pvar.zst")
+        if zst_path.exists():
+            pvar_path = zst_path
     try:
         pv = pgenlib.PvarReader(str(pvar_path).encode())
     except Exception as e:

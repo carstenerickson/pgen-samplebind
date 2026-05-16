@@ -104,7 +104,7 @@ pgen-samplebind hash     INPUT                        [options]
 pgen-samplebind inspect  INPUT                        [options]
 ```
 
-Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion files (`.pgen`+`.pvar`+`.psam` / `.bed`+`.bim`+`.fam` / `.geno`+`.snp`+`.ind`).
+Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion files (`.pgen`+`.pvar`+`.psam` / `.bed`+`.bim`+`.fam` / `.geno`+`.snp`+`.ind`). The variant companion may be either `.pvar` or `.pvar.zst` (plink2 v2.0.0-a.6+ default; HuggingFace / Dataverse panels typically arrive zstd-compressed).
 
 ### `merge` — bind inputs into one output PFILE
 
@@ -135,6 +135,8 @@ Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion 
 ### `validate` — check alignment without writing
 
 Same alignment / strand options as `merge`. No output written; reports go to stdout plus optional `--report` / `--report-json`. Exits 0 if alignment OK, 1 if any of the gates below fires.
+
+`--no-population-column`: skip the population-column requirement on input psams. Use when a user PFILE has only `[IID, SEX]` (e.g., a single-sample VCF intersected with a reference panel before fraposa OADP projection — populations are downstream classification output, not user input). Variant-alignment, strand-orientation, and IID-collision checks still run; population-aware report fields come out empty for inputs that lack the column. Mutually exclusive with `--population-column`.
 
 ### `hash` — emit canonical variant-set hash
 

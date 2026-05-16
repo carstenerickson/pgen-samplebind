@@ -121,6 +121,7 @@ class MergePolicy:
     target_min_call_rate: float = 0.40
     include_chrom: tuple[int, ...] = tuple(range(1, 23))
     population_column: str | None = None
+    no_population_column: bool = False
     id_column: str = "IID"
     block_size: int = 2048
     extras_warn_threshold: float = 0.10

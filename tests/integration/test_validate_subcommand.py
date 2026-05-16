@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from pgen_samplebind.cli import cli
+from tests.fixtures.modifiers import compress_pvar_to_zst
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
 
 
@@ -91,6 +92,166 @@ class TestValidateGateD:
         )
         # Same panel → no missing variants → gate (d) doesn't fire → exit 0
         assert result.exit_code == 0, result.output
+
+
+class TestValidateZstPvar:
+    """`.pvar.zst` panels (plink2 v2.0.0-a.6+ default, HGDP+1kGP distribution form).
+
+    The full validate flow — format detection, multi-allelic check via
+    pgenlib, pandas read, alignment — must work with a zstd-compressed
+    .pvar alongside an uncompressed .pgen + .psam.
+    """
+
+    @pytest.fixture
+    def panel_a_zst(self, panel_a: Path) -> Path:
+        compress_pvar_to_zst(panel_a)
+        return panel_a
+
+    def test_validate_panel_with_zst_pvar(
+        self, panel_a_zst: Path, panel_b: Path
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["validate", str(panel_a_zst), str(panel_b), "--quiet"])
+        assert result.exit_code == 0, result.output
+
+    def test_validate_both_inputs_zst(self, panel_a: Path, panel_b: Path) -> None:
+        compress_pvar_to_zst(panel_a)
+        compress_pvar_to_zst(panel_b)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["validate", str(panel_a), str(panel_b), "--quiet"])
+        assert result.exit_code == 0, result.output
+
+    def test_user_prefix_includes_zst_suffix(
+        self, panel_a_zst: Path, panel_b: Path
+    ) -> None:
+        """Passing `panel.pvar.zst` as the prefix arg should resolve the same
+        way as passing `panel` — `strip_known_suffix` handles the two-part
+        suffix."""
+        zst_arg = Path(str(panel_a_zst) + ".pvar.zst")
+        assert zst_arg.exists()
+        runner = CliRunner()
+        result = runner.invoke(cli, ["validate", str(zst_arg), str(panel_b), "--quiet"])
+        assert result.exit_code == 0, result.output
+
+
+class TestValidateNoPopulationColumn:
+    """Issue #3: a single-sample user PFILE intersected with a reference panel
+    has only [IID, SEX] columns by construction. Populations are an *output*
+    of the downstream ancestry classification, not a user input.
+
+    With --no-population-column, validate should run the alignment + strand +
+    IID-collision checks and skip the population-distribution checks.
+    """
+
+    @pytest.fixture
+    def user_single_sample(self, panel_a: Path) -> Path:
+        """Build a 1-sample user PFILE sharing variants with panel_a but with
+        a psam containing only `#IID\tSEX` (no POP column)."""
+        spec = SyntheticPanelSpec(
+            n_samples=1,
+            n_variants=100,
+            n_populations=1,
+            variant_seed=1,  # same variants as panel_a
+            sample_seed=999,
+            sample_id_prefix="USER",
+        )
+        out_dir = panel_a.parent.parent / "user_solo"
+        out_dir.mkdir(exist_ok=True)
+        desc = synthesize_pfile(spec, out_dir / "u")
+        # Rewrite psam: keep only #IID, SEX (mirrors VCF→PFILE intersection output).
+        psam_text = desc.psam_path.read_text().splitlines()
+        header = psam_text[0].split("\t")
+        # Keep #IID and SEX columns
+        iid_idx = header.index("#IID")
+        sex_idx = header.index("SEX")
+        new_lines = ["\t".join(["#IID", "SEX"])]
+        for line in psam_text[1:]:
+            parts = line.split("\t")
+            new_lines.append("\t".join([parts[iid_idx], parts[sex_idx]]))
+        desc.psam_path.write_text("\n".join(new_lines) + "\n")
+        return desc.path
+
+    def test_validate_fails_without_flag(
+        self, user_single_sample: Path, panel_a: Path
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["validate", str(user_single_sample), str(panel_a), "--quiet"])
+        assert result.exit_code != 0, result.output
+
+    def test_validate_succeeds_with_flag(
+        self, user_single_sample: Path, panel_a: Path
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                str(user_single_sample),
+                str(panel_a),
+                "--no-population-column",
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_validate_flag_emits_info_line(
+        self, user_single_sample: Path, panel_a: Path
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["validate", str(user_single_sample), str(panel_a), "--no-population-column"],
+        )
+        assert result.exit_code == 0, result.output
+        # info: ... no population column ...   on the user-side input
+        assert "no population column" in result.output
+
+    def test_flag_conflicts_with_population_column(
+        self, user_single_sample: Path, panel_a: Path
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                str(user_single_sample),
+                str(panel_a),
+                "--no-population-column",
+                "--population-column",
+                "SuperPop",
+                "--quiet",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "incompatible" in result.output.lower() or "no-population-column" in result.output
+
+    def test_report_json_runs_with_flag(
+        self, user_single_sample: Path, panel_a: Path, tmp_path: Path
+    ) -> None:
+        """--report-json should still emit a valid summary (population fields empty)."""
+        import json
+
+        report_json = tmp_path / "report.json"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                str(user_single_sample),
+                str(panel_a),
+                "--no-population-column",
+                "--report-json",
+                str(report_json),
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(report_json.read_text())
+        assert payload["command"] == "validate"
+        # User input (idx 0) has no POP → its per-input populations is empty
+        assert payload["per_input_populations"][0] == {}
+        # Panel (idx 1) still carries POP → non-empty
+        assert payload["per_input_populations"][1] != {}
 
 
 class TestValidateReports:
