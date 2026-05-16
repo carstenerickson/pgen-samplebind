@@ -107,9 +107,7 @@ class TestValidateZstPvar:
         compress_pvar_to_zst(panel_a)
         return panel_a
 
-    def test_validate_panel_with_zst_pvar(
-        self, panel_a_zst: Path, panel_b: Path
-    ) -> None:
+    def test_validate_panel_with_zst_pvar(self, panel_a_zst: Path, panel_b: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(cli, ["validate", str(panel_a_zst), str(panel_b), "--quiet"])
         assert result.exit_code == 0, result.output
@@ -121,9 +119,7 @@ class TestValidateZstPvar:
         result = runner.invoke(cli, ["validate", str(panel_a), str(panel_b), "--quiet"])
         assert result.exit_code == 0, result.output
 
-    def test_user_prefix_includes_zst_suffix(
-        self, panel_a_zst: Path, panel_b: Path
-    ) -> None:
+    def test_user_prefix_includes_zst_suffix(self, panel_a_zst: Path, panel_b: Path) -> None:
         """Passing `panel.pvar.zst` as the prefix arg should resolve the same
         way as passing `panel` — `strip_known_suffix` handles the two-part
         suffix."""
@@ -171,16 +167,12 @@ class TestValidateNoPopulationColumn:
         desc.psam_path.write_text("\n".join(new_lines) + "\n")
         return desc.path
 
-    def test_validate_fails_without_flag(
-        self, user_single_sample: Path, panel_a: Path
-    ) -> None:
+    def test_validate_fails_without_flag(self, user_single_sample: Path, panel_a: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(cli, ["validate", str(user_single_sample), str(panel_a), "--quiet"])
         assert result.exit_code != 0, result.output
 
-    def test_validate_succeeds_with_flag(
-        self, user_single_sample: Path, panel_a: Path
-    ) -> None:
+    def test_validate_succeeds_with_flag(self, user_single_sample: Path, panel_a: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(
             cli,
@@ -194,9 +186,7 @@ class TestValidateNoPopulationColumn:
         )
         assert result.exit_code == 0, result.output
 
-    def test_validate_flag_emits_info_line(
-        self, user_single_sample: Path, panel_a: Path
-    ) -> None:
+    def test_validate_flag_emits_info_line(self, user_single_sample: Path, panel_a: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(
             cli,
