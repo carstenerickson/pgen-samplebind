@@ -9,7 +9,7 @@ import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 import pandas as pd
 
@@ -177,17 +177,20 @@ def read_pvar(path: Path) -> pd.DataFrame:
         IOFailure: file unreadable or unparseable.
     """
     header_idx = _find_header_line(path)
-    read_csv_kwargs: dict[str, object] = dict(
-        sep="\t",
-        skiprows=header_idx,
-        header=0,
-        dtype=str,  # parse everything as string first; we'll cast
-        na_filter=False,
-    )
-    if is_zst_path(path):
-        read_csv_kwargs["compression"] = "zstd"
+    # pandas `compression="infer"` auto-detects `.zst` from the filename; we
+    # pass it explicitly for `.pvar.zst` to insulate against fixture / tempfile
+    # names that don't end in a recognized compression suffix.
+    compression: Literal["zstd", "infer"] = "zstd" if is_zst_path(path) else "infer"
     try:
-        df = pd.read_csv(path, **read_csv_kwargs)  # type: ignore[call-overload]
+        df = pd.read_csv(
+            path,
+            sep="\t",
+            skiprows=header_idx,
+            header=0,
+            dtype=str,  # parse everything as string first; we'll cast
+            na_filter=False,
+            compression=compression,
+        )
     except (OSError, pd.errors.ParserError) as e:
         raise IOFailure(f"cannot parse {path}: {e}") from e
 
