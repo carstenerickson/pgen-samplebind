@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-16
+
 ### Added
 
 - **`validate --no-population-column` flag.** Closes [#3](https://github.com/carstenerickson/pgen-samplebind/issues/3): a single-sample user PFILE intersected with a reference panel only has `[IID, SEX]` columns by construction — population labels are an *output* of downstream ancestry classification, not a user input. Previously `validate` hard-required a `POP` / `PHENO` / `PHENO1` column on every input psam and refused to run; the flag tells validate to skip the population-column requirement and still run the variant-alignment, strand-orientation, and IID-collision checks (the only ones that don't need POP). Reporting fields that depend on POP (`per_input_populations`, per-population stdout breakdown) come out empty for inputs that lack the column. Mutually exclusive with `--population-column`; also requires an explicit `--relabel-input-col` when combined with `--relabel-from` (since the 2-col relabel form keys on POP). New helper `psam.try_detect_population_column` returns `None` instead of raising when no fallback matches. Unblocks the ancestry-pipeline preflight wrapper that currently catches and skips on this exact error.

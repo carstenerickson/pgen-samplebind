@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pgen-samplebind"
-version = "0.3.0"
+version = "0.3.1"
 description = "Bind PFILE/BFILE/EIGENSTRAT genotype datasets sharing a variant set; the missing plink2 --pmerge case for ancient-DNA / population-genetics workflows."
 readme = "README.md"
 license = { text = "MIT" }
