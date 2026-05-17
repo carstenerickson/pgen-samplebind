@@ -326,6 +326,23 @@ def make_panel_with_iids(
     return out_prefix
 
 
+def compress_pvar_to_zst(prefix: Path) -> Path:
+    """Replace `<prefix>.pvar` with `<prefix>.pvar.zst` (zstd-compressed).
+
+    Mirrors how panels distributed via plink2 v2.0.0-a.6+ / HuggingFace /
+    Dataverse arrive — `.pgen` + `.pvar.zst` + `.psam`. Returns the new
+    .zst path. The original uncompressed `.pvar` is removed.
+    """
+    import zstandard
+
+    pvar = Path(str(prefix) + ".pvar")
+    zst = Path(str(prefix) + ".pvar.zst")
+    data = pvar.read_bytes()
+    zst.write_bytes(zstandard.ZstdCompressor().compress(data))
+    pvar.unlink()
+    return zst
+
+
 def make_corrupt_eigenstrat(out_prefix: Path) -> Path:
     """Write a deliberately-malformed EIGENSTRAT triplet for HLD test 19.
 

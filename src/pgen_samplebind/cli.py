@@ -231,6 +231,15 @@ def merge_command(
 @click.option("--id-column", default="IID")
 @click.option("--population-column", default=None)
 @click.option(
+    "--no-population-column",
+    is_flag=True,
+    default=False,
+    help="Skip the population-column requirement on input psams. "
+    "Use for single-sample user PFILEs whose psam is [IID, SEX] only "
+    "(populations are downstream-classification output, not a user input). "
+    "Variant-alignment, strand, and IID-collision checks still run.",
+)
+@click.option(
     "--validate-strand-fail-pct",
     type=float,
     default=10.0,
@@ -278,6 +287,7 @@ def validate_command(
     on_collision: str,
     id_column: str,
     population_column: str | None,
+    no_population_column: bool,
     validate_strand_fail_pct: float,
     relabel_from: Path | None,
     relabel_input_col: str | None,
@@ -291,6 +301,17 @@ def validate_command(
     OK, 1 if any Exit-1 gate fires (HLD §Exit-1 validation gates), 3 on
     invariant violation (multi-allelic input, duplicate canonical keys,
     --on-collision error)."""
+    if no_population_column and population_column is not None:
+        raise click.UsageError(
+            "--no-population-column is incompatible with --population-column "
+            "(former says 'no POP at all', latter selects which column is POP)."
+        )
+    if no_population_column and relabel_from is not None and relabel_input_col is None:
+        raise click.UsageError(
+            "--no-population-column requires --relabel-input-col when --relabel-from is "
+            "given (the 2-col relabel form keys on POP; pass an explicit input column on "
+            "the relabel TSV instead)."
+        )
     policy = MergePolicy(
         on_mismatch=on_mismatch,  # type: ignore[arg-type]
         on_missing=on_missing,  # type: ignore[arg-type]
@@ -301,6 +322,7 @@ def validate_command(
         variant_key=variant_key,  # type: ignore[arg-type]
         validate_strand_fail_pct=validate_strand_fail_pct,
         population_column=population_column,
+        no_population_column=no_population_column,
         id_column=id_column,
         report_json_include_rows=report_json_include_rows,
     )

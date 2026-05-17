@@ -37,17 +37,39 @@ _KNOWN_SUFFIXES = frozenset(
     {".pgen", ".pvar", ".psam", ".bed", ".bim", ".fam", ".geno", ".snp", ".ind"}
 )
 
+# Two-part suffixes (compressed variants). Path.suffix only returns the
+# final component, so these need a separate string-endswith check.
+_KNOWN_DOUBLE_SUFFIXES = (".pvar.zst",)
+
 
 def strip_known_suffix(prefix: Path) -> Path:
     """If prefix has a recognized PFILE/BFILE/EIGENSTRAT extension, strip it.
 
-    Lets users pass either `data` or `data.pgen` and detect identically.
-    Also reused by `pseudohaploid.read_sidecar` to locate the
-    `<base>.pseudohaploid.json` sidecar against either prefix form.
+    Lets users pass either `data`, `data.pgen`, or `data.pvar.zst` and
+    detect identically. Also reused by `pseudohaploid.read_sidecar` to
+    locate the `<base>.pseudohaploid.json` sidecar against either prefix
+    form.
     """
+    name = prefix.name
+    for suffix in _KNOWN_DOUBLE_SUFFIXES:
+        if name.endswith(suffix):
+            return prefix.with_name(name[: -len(suffix)])
     if prefix.suffix in _KNOWN_SUFFIXES:
         return prefix.with_suffix("")
     return prefix
+
+
+def _resolve_pvar_path(base: Path) -> Path | None:
+    """Return the existing pvar companion next to `base` (PFILE prefix), preferring
+    uncompressed `.pvar` over `.pvar.zst`. None if neither is present.
+    """
+    pvar = Path(str(base) + ".pvar")
+    if pvar.exists():
+        return pvar
+    pvar_zst = Path(str(base) + ".pvar.zst")
+    if pvar_zst.exists():
+        return pvar_zst
+    return None
 
 
 def detect_format(prefix: Path) -> InputFormat:
@@ -64,12 +86,18 @@ def detect_format(prefix: Path) -> InputFormat:
     base_str = str(base)
 
     pgen = Path(base_str + ".pgen")
-    pvar = Path(base_str + ".pvar")
     psam = Path(base_str + ".psam")
     if pgen.exists():
-        if pvar.exists() and psam.exists():
+        pvar_resolved = _resolve_pvar_path(base)
+        if pvar_resolved is not None and psam.exists():
             return InputFormat.PFILE
-        missing = [str(p) for p in (pvar, psam) if not p.exists()]
+        # Build a single missing-list. If neither pvar form exists, surface
+        # both candidates so users with `.pvar.zst` know it's accepted.
+        missing: list[str] = []
+        if pvar_resolved is None:
+            missing.append(f"{base_str}.pvar (or {base_str}.pvar.zst)")
+        if not psam.exists():
+            missing.append(str(psam))
         raise UsageError(f"PFILE detected ({pgen}) but missing companion file(s): {missing}")
 
     bed = Path(base_str + ".bed")
@@ -409,10 +437,12 @@ def prepared_input(
     base_str = str(base)
 
     if fmt is InputFormat.PFILE:
+        pvar_resolved = _resolve_pvar_path(base)
+        assert pvar_resolved is not None, "detect_format() guaranteed pvar presence"
         desc = InputDescriptor(
             path=prefix,
             pgen_path=Path(base_str + ".pgen"),
-            pvar_path=Path(base_str + ".pvar"),
+            pvar_path=pvar_resolved,
             psam_path=Path(base_str + ".psam"),
             fmt=fmt,
             is_target=is_target,

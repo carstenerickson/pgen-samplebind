@@ -57,10 +57,22 @@ def run_validate(
 
         # Step 5: read psams
         psam_dfs = []
-        for desc in descriptors:
+        for i, desc in enumerate(descriptors):
             df = psam.read_psam(desc.psam_path)
-            pop_col = psam.detect_population_column(df, policy.population_column)
-            df = psam.rename_to_pop(df, pop_col)
+            if policy.no_population_column:
+                pop_col = psam.try_detect_population_column(df, policy.population_column)
+                if pop_col is None:
+                    if not quiet:
+                        sys.stderr.write(
+                            f"info: input[{i}] {desc.psam_path}: no population column "
+                            f"(columns={list(df.columns)}); population-aware report "
+                            f"fields will be empty for this input.\n"
+                        )
+                else:
+                    df = psam.rename_to_pop(df, pop_col)
+            else:
+                pop_col = psam.detect_population_column(df, policy.population_column)
+                df = psam.rename_to_pop(df, pop_col)
             psam_dfs.append(df)
 
         # --relabel-from per-input (HLD §Relabeling) — same logic as merge.
