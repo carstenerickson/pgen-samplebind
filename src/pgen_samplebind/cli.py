@@ -1,8 +1,8 @@
-"""Click entry point. Per LLD §3.16.
+"""Click entry point.
 
-main() runs click in non-standalone mode so the LLD owns exit-code routing
+main() runs click in non-standalone mode so we own exit-code routing
 explicitly rather than inheriting click's defaults (click.UsageError defaults
-to exit 2, which collides with HLD's exit-2 reservation for I/O failure).
+to exit 2, which collides with our exit-2 reservation for I/O failure).
 """
 
 from __future__ import annotations
@@ -102,7 +102,13 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
     default=None,
     help=".psam column holding population labels (default: POP/PHENO/PHENO1 fallback).",
 )
-@click.option("--target-min-call-rate", type=float, default=0.40)
+@click.option(
+    "--target-min-call-rate",
+    type=float,
+    default=0.40,
+    help="Gate (c): each --target's call rate (non-missing genotypes / canonical "
+    "variant count) must be >= this value or merge exits 1 (default 0.40).",
+)
 @click.option(
     "--validate-strand-fail-pct",
     type=float,
@@ -228,8 +234,16 @@ def merge_command(
     type=click.Choice(["error", "first", "suffix"]),
     default="error",
 )
-@click.option("--id-column", default="IID")
-@click.option("--population-column", default=None)
+@click.option(
+    "--id-column",
+    default="IID",
+    help=".psam column for identity ops (default IID).",
+)
+@click.option(
+    "--population-column",
+    default=None,
+    help=".psam column holding population labels (default: POP/PHENO/PHENO1 fallback).",
+)
 @click.option(
     "--no-population-column",
     is_flag=True,
@@ -350,8 +364,9 @@ def validate_command(
 )
 @click.option(
     "--population-column",
-    default="POP",
-    help="`.psam` column to aggregate by (default: POP — set by pgen-samplebind merge).",
+    default=None,
+    help=".psam column holding population labels (default: POP/PHENO/PHENO1 fallback). "
+    "Matches the auto-detect used by merge and validate.",
 )
 @click.option(
     "--populations",
@@ -374,12 +389,17 @@ def validate_command(
     default=False,
     help="Include sex chromosomes (chr 23/24/25/26). Default: autosomes only.",
 )
-@click.option("--block-size", type=int, default=2048)
-@click.option("--quiet", is_flag=True, default=False)
+@click.option(
+    "--block-size",
+    type=int,
+    default=2048,
+    help="Variants per pgenlib read block (default: 2048).",
+)
+@click.option("--quiet", is_flag=True, default=False, help="Suppress progress to stdout.")
 def afs_command(
     input_path: Path,
     output_dir: Path,
-    population_column: str,
+    population_column: str | None,
     populations_filter: tuple[str, ...],
     adjust_pseudohaploid: bool,
     include_sex_chrom: bool,
@@ -408,7 +428,8 @@ def main() -> None:
     """Console-script entry point.
 
     Runs click in non-standalone mode and routes every exit through the
-    HLD-pinned ExitCode enum.
+    ExitCode enum (rather than inheriting click's defaults, which collide
+    with our reserved exit codes).
     """
     try:
         cli(standalone_mode=False)
@@ -420,10 +441,6 @@ def main() -> None:
     except PgenSamplebindError as e:
         click.echo(f"error: {e}", err=True)
         sys.exit(e.exit_code)
-    except NotImplementedError as e:
-        # Day 1 stubs for merge/validate.
-        click.echo(f"not implemented: {e}", err=True)
-        sys.exit(ExitCode.USAGE_ERROR)
     except Exception:
         traceback.print_exc()
         sys.exit(ExitCode.INVARIANT_VIOLATION)
