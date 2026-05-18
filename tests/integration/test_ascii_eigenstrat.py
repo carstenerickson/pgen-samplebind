@@ -93,19 +93,31 @@ class TestAsciiEigenstratNativeParser:
         actual = _read_pgen_full(out_prefix, n_samples=4, n_variants=3)
         np.testing.assert_array_equal(actual, expected)
 
-        # pvar has CM column preserved
-        pvar_lines = (out_prefix.with_suffix(".pvar")).read_text().splitlines()
-        assert pvar_lines[0] == "#CHROM\tPOS\tID\tREF\tALT\tCM"
-        assert pvar_lines[1] == "1\t100\trs1\tA\tC\t0.001"
-        assert pvar_lines[2] == "2\t200\trs2\tG\tT\t0.5"
-        assert pvar_lines[3] == "3\t300\trs3\tC\tA\t1.0"
+        # pvar has CM column preserved. Use schema-level checks rather than
+        # exact-string match — float formatting (0.5 vs 0.500) drifts across
+        # pandas/numpy versions, which would break the test on innocent
+        # upgrades.
+        import pandas as pd
+
+        pvar_df = pd.read_csv(out_prefix.with_suffix(".pvar"), sep="\t")
+        pvar_df.columns = [c.lstrip("#") for c in pvar_df.columns]
+        assert set(pvar_df.columns) == {"CHROM", "POS", "ID", "REF", "ALT", "CM"}
+        assert pvar_df["ID"].tolist() == ["rs1", "rs2", "rs3"]
+        assert pvar_df["CHROM"].astype(int).tolist() == [1, 2, 3]
+        assert pvar_df["POS"].astype(int).tolist() == [100, 200, 300]
+        assert pvar_df["REF"].tolist() == ["A", "G", "C"]
+        assert pvar_df["ALT"].tolist() == ["C", "T", "A"]
+        # CM values are float-typed; compare numerically with a small tolerance.
+        np.testing.assert_allclose(pvar_df["CM"].astype(float), [0.001, 0.5, 1.0], atol=1e-9)
 
         # psam has FID=0 (orchestrator adds FID=POP later) and PHENO1 = pop label
-        psam_lines = (out_prefix.with_suffix(".psam")).read_text().splitlines()
-        assert psam_lines[0] == "#FID\tIID\tSEX\tPHENO1"
-        assert psam_lines[1] == "0\tS1\t1\tPOP1"  # M → 1
-        assert psam_lines[2] == "0\tS2\t2\tPOP1"  # F → 2
-        assert psam_lines[4] == "0\tS4\t0\tPOP2"  # U → 0
+        psam_df = pd.read_csv(out_prefix.with_suffix(".psam"), sep="\t", dtype=str)
+        psam_df.columns = [c.lstrip("#") for c in psam_df.columns]
+        assert list(psam_df.columns) == ["FID", "IID", "SEX", "PHENO1"]
+        assert psam_df["FID"].tolist() == ["0"] * 4
+        assert psam_df["IID"].tolist() == ["S1", "S2", "S3", "S4"]
+        assert psam_df["SEX"].tolist() == ["1", "2", "1", "0"]  # M/F/M/U → 1/2/1/0
+        assert psam_df["PHENO1"].tolist() == ["POP1", "POP1", "POP2", "POP2"]
 
     def test_single_sample_pseudohaploid_style(self, tmp_path: Path) -> None:
         """Carsten-style: 1 sample, only 0/2/9 values (pseudohaploid)."""

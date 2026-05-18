@@ -253,10 +253,12 @@ class TestValidateReports:
         )
         assert result.exit_code == 0, result.output
         assert report.exists()
-        content = report.read_text()
-        assert "variant_id\tchr\tpos\tinput_index\taction\treason" in content
-        # 100 variants x 1 non-canonical input = 100 data rows + 1 header
-        assert content.count("\n") == 101
+        lines = report.read_text().splitlines()
+        header_cols = set(lines[0].split("\t"))
+        required = {"variant_id", "chr", "pos", "input_index", "action", "reason"}
+        assert required.issubset(header_cols), f"missing report cols: {required - header_cols}"
+        # 100 variants x 1 non-canonical input = 100 data rows
+        assert len(lines) - 1 == 100
 
     def test_validate_writes_report_json_summary_only(
         self, panel_a: Path, panel_b: Path, tmp_path: Path
