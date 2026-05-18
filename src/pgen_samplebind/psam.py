@@ -146,7 +146,20 @@ def rename_to_pop(df: pd.DataFrame, source_col: str) -> pd.DataFrame:
     if source_col == "POP":
         return df
     if "POP" in df.columns:
-        if (df["POP"].astype(str) == df[source_col].astype(str)).all():
+        existing = df["POP"]
+        incoming = df[source_col]
+        # NaN/None in either column breaks the .astype(str) comparison below
+        # (str(nan) == 'nan' coincidentally compares equal across columns, so
+        # NaNs would silently drop the existing POP as if it agreed with the
+        # source). Reject explicitly with a diagnostic that names the real
+        # cause.
+        if existing.isna().any() or incoming.isna().any():
+            raise UsageError(
+                f"Cannot rename {source_col!r} → 'POP': one of the candidate "
+                f"population columns contains missing values. Either fix the "
+                f"input .psam or drop the conflicting column."
+            )
+        if (existing.astype(str) == incoming.astype(str)).all():
             df = df.drop(columns=["POP"])
         else:
             raise UsageError(

@@ -390,6 +390,7 @@ def _convert_ascii_eigenstrat(
         )
     except Exception as e:
         raise IOFailure(f"cannot open PgenWriter for {out_pgen}: {e}") from e
+    append_failed = False
     try:
         # PgenWriter.append_biallelic_batch takes (block_size, n_samples) int8.
         # Stream in 1024-variant blocks to amortize the call overhead.
@@ -398,8 +399,19 @@ def _convert_ascii_eigenstrat(
             end = min(start + block, n_variants)
             chunk = np.ascontiguousarray(matrix_kept[start:end], dtype=np.int8)
             writer.append_biallelic_batch(chunk)
+    except Exception:
+        append_failed = True
+        raise
     finally:
-        writer.close()
+        # PgenWriter.close() raises RuntimeError if the variant_ct it was
+        # opened with doesn't match the count appended. On the happy path
+        # we want that raise; on the unhappy path it would mask the real
+        # append-time exception, so swallow it.
+        try:
+            writer.close()
+        except Exception:
+            if not append_failed:
+                raise
 
 
 @contextmanager

@@ -150,6 +150,21 @@ class TestRenameToPop:
         with pytest.raises(InvariantViolation, match="2 'POP' columns"):
             rename_to_pop(df, source_col="IID")
 
+    def test_rebind_with_nan_in_pop_raises_with_clear_diagnostic(self) -> None:
+        """NaN in either candidate column breaks the equality short-circuit
+        (str(nan) compares equal across columns coincidentally). Surface
+        the real cause instead of a misleading 'distinct POP' error.
+        """
+        df = pd.DataFrame(
+            {
+                "FID": ["pop_a", "pop_b"],
+                "IID": ["s1", "s2"],
+                "POP": ["pop_a", None],
+            }
+        )
+        with pytest.raises(UsageError, match="missing values"):
+            rename_to_pop(df, source_col="FID")
+
 
 class TestAddFidFromPop:
     def test_fid_equals_pop(self) -> None:
