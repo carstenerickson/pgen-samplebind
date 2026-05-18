@@ -478,10 +478,10 @@ def evaluate_pass1_gates(
 
 
 def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
-    """Build the 8-key action_histogram
+    """Build the 9-key action_histogram
 
     Sums per-input action counts across all non-canonical inputs.
-    All 8 keys always present (zero-valued if no variants matched) so the
+    All 9 keys always present (zero-valued if no variants matched) so the
     JSON schema stays stable for workflow consumers regardless of outcome.
 
     For per-chromosome breakdown (diagnostic for chr-specific
