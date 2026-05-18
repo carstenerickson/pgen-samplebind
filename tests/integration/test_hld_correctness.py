@@ -1,6 +1,6 @@
 """HLD-named integration tests for correctness invariants.
 
-Maps to LLD §5.3 / HLD §Validation strategy. Day 5 lands tests 1-6 + 20:
+Maps to  /  strategy. Day 5 lands tests 1-6 + 20:
 - Test 1: round-trip identity (via --on-collision first; suffix is Day 8)
 - Test 2: three-way associativity
 - Test 3: strand-flip recovery
@@ -148,7 +148,7 @@ class TestHld02ThreeWayAssociativity:
 class TestHld03StrandFlipRecovery:
     """A + flipped(A) merge: --on-strand flip (default) → passthrough-equivalent
     output (since strand-flip on biallelic SNPs is metadata-only on hardcalls
-    per LLD §2.1 action-collapse)."""
+    action-collapse)."""
 
     def test_strand_flip_default_recovers(self, tmp_path: Path) -> None:
         # Use unambiguous variants only by setting ambiguous_strand_fraction=0.0

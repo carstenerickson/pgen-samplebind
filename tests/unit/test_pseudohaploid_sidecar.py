@@ -1,7 +1,7 @@
 """Unit tests for `pseudohaploid.read_sidecar` (issue #2).
 
 The sidecar is an authoritative per-sample pseudohaploid declaration written
-by sibling tools (e.g., pileup-aadr). See HLD §Pseudohaploid sidecar and the
+by sibling tools (e.g., pileup-aadr). See  sidecar and the
 schema v1 spec in pileup-aadr's LLD §output.py.
 
 Coverage:

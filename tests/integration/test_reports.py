@@ -1,8 +1,7 @@
 """Integration tests for --report and --report-json across merge and validate.
 
-Covers HLD test 22 (Report-JSON default vs include-rows) at the integration
-level. The summary-only-default and include-rows-opt-in contracts are pinned
-in LLD §3.11.
+Covers the Report-JSON summary-only-default vs --include-rows-opt-in
+contracts at the integration level.
 """
 
 from __future__ import annotations

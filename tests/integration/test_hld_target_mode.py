@@ -1,6 +1,6 @@
 """HLD test 13 (target+EIGENSTRAT compose) + gate (c) target call-rate tests.
 
-Per HLD §Validation strategy / §Target mode:
+Per  strategy / §Target mode:
 - Test 13: --target user.eig + EIGENSTRAT panel positional; output AT2 f2
   matches mergeit reference within max_dev < 1e-9. (The AT2 f2 comparison
   requires AT2/mergeit binaries; only the end-to-end-runs-cleanly portion
@@ -162,7 +162,7 @@ class TestHld13TargetEigfileCompose:
 
 
 class TestGateCTargetCallRate:
-    """Gate (c) per HLD §Exit-1 validation gates (c) and §Target mode:
+    """Gate (c) per -1 validation gates (c) and §Target mode:
     target call rate below --target-min-call-rate exits 1.
 
     Synthesizer's `missing_rate` parameter controls per-genotype missingness.
@@ -264,7 +264,7 @@ class TestGateCTargetCallRate:
         assert result.exit_code == 0, result.output
 
     def test_gate_c_failure_unlinks_output_triplet(self, tmp_path: Path) -> None:
-        """LLD §4.1 fix #6 + §3.10 LLD pin: when gate (c) fires post-pass-2,
+        """ fix #6 + §3.10 LLD pin: when gate (c) fires post-pass-2,
         the output cleanup wrapper unlinks the .pgen/.pvar/.psam triplet so
         the user doesn't see a half-built panel that's actually invalid."""
         synthesize_pfile(

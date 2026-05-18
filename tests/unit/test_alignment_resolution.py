@@ -1,4 +1,4 @@
-"""Unit tests for alignment.resolve_alleles — HLD §Allele resolution truth table."""
+"""Unit tests for alignment.resolve_alleles —  resolution truth table."""
 
 from __future__ import annotations
 

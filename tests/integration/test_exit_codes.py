@@ -1,6 +1,6 @@
 """End-to-end exit-code harness via real subprocess invocation of cli.main().
 
-Per LLD §3.16, exit codes are stable across versions:
+Per , exit codes are stable across versions:
     OK = 0
     VALIDATION_FAILURE = 1
     IO_FAILURE = 2

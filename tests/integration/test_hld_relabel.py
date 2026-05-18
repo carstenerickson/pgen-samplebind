@@ -1,6 +1,6 @@
 """HLD test 14: --relabel-from anno; plus 2-col form + --id-column coverage.
 
-Per HLD §Validation strategy:
+Per  strategy:
   14. test_relabel_from_anno: AADR `.anno` file as `--relabel-from` with
       `--relabel-input-col 'Genetic ID' --relabel-output-col 'Group ID'`;
       output `.psam` POP column matches a hand-extracted (Genetic ID,
@@ -46,7 +46,7 @@ class TestHld14RelabelFromAnno:
     """AADR-style N-col anno file; --relabel-input-col 'Genetic ID',
     --relabel-output-col 'Group ID'. Output POP per-sample comes from
     the anno's Group ID; samples missing from the anno keep their
-    original POP (per HLD §Relabeling)."""
+    original POP."""
 
     def test_anno_overrides_pop_per_sample(self, tmp_path: Path) -> None:
         # Two panels with disjoint IIDs but same variants.
@@ -132,7 +132,7 @@ class TestHld14RelabelFromAnno:
         )
         assert result.exit_code == 0, result.output
         psam_df = _read_psam(out)
-        # FID must match POST-relabel POP (per HLD §Output PFILE)
+        # FID must match POST-relabel POP
         assert (psam_df["FID"] == psam_df["POP"]).all()
         assert set(psam_df["FID"]) == {"RELABELED"}
 
@@ -193,7 +193,7 @@ class TestRelabelTwoColSimple:
 
 
 class TestRelabelWithCustomIdColumn:
-    """HLD §Cross-version sample identity: --id-column NAME selects which
+    """-version sample identity: --id-column NAME selects which
     .psam column drives sample-identity ops, including --relabel-from's
     join. AADR cross-version uses 'Master ID'."""
 
@@ -289,7 +289,7 @@ class TestRelabelEdgeCases:
         assert "must be supplied together" in str(result.exception)
 
     def test_relabel_validate_subcommand(self, tmp_path: Path) -> None:
-        """--relabel-from also wired into validate (HLD §Relabeling: applies
+        """--relabel-from also wired into validate (: applies
         to merge AND validate)."""
         a = make_panel_with_iids(tmp_path / "a", ["S001"], pop="OldA")
         b = make_panel_with_iids(tmp_path / "b", ["S002"], pop="OldB")
@@ -318,7 +318,7 @@ class TestRelabelEdgeCases:
 class TestHld15NoStringLabeledChroms:
     """HLD test 15: output .pvar's #CHROM column contains integer values
     only (1-22 for autosomes; the autosomal filter excludes X/Y/MT by
-    default per HLD §Format detection). String labels like 'chr1' are
+    default per  detection). String labels like 'chr1' are
     normalized away during the EIGENSTRAT → PFILE conversion + our
     pvar.normalize_chrom path."""
 

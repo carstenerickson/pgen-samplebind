@@ -178,12 +178,12 @@ class TestMergePsamStructure:
 
         df = pd.read_csv(Path(str(out) + ".psam"), sep="\t")
         cols = [c.lstrip("#") for c in df.columns]
-        # Canonical column order per LLD §3.5: FID first (plink2 .psam spec
+        # Canonical column order: FID first (plink2 .psam spec
         # requires FID to be the first column when present, header `#FID...`).
         assert cols[:5] == ["FID", "IID", "SEX", "POP", "PSEUDOHAPLOID"]
 
     def test_fid_equals_pop(self, panel_a: Path, panel_b: Path, tmp_path: Path) -> None:
-        """HLD §Output PFILE: FID populated equal to POP for AT2 compatibility."""
+        """ PFILE: FID populated equal to POP for AT2 compatibility."""
         out = tmp_path / "merged"
         runner = CliRunner()
         runner.invoke(cli, ["merge", str(panel_a), str(panel_b), "-o", str(out), "--quiet"])

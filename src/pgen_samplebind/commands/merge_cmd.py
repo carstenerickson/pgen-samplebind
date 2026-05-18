@@ -104,7 +104,7 @@ def run_merge(
     relabel_input_col: str | None = None,
     relabel_output_col: str | None = None,
 ) -> None:
-    """Merge subcommand orchestrator. Per 
+    """Merge subcommand orchestrator.
 
     Target mode (--target): one or more targets are appended after the
     positional inputs. The canonical (input[0]) remains the first positional.

@@ -1,12 +1,12 @@
-"""HLD test 18: throughput benchmark gate.
+"""Throughput benchmark gate.
 
 Measures wallclock + throughput (genotypes/sec) + peak RSS for a fixed-size
 synthetic merge. Fails if throughput regresses below `threshold_pct_of_baseline`
-of the recorded baseline (default 80% of HLD's 100 M genotypes/sec target).
+of the recorded baseline (default 80% of the 100 M genotypes/sec target).
 
-Per LLD §5.7: Linux x86_64 only — macOS GitHub runners have inconsistent CPU
-profiles that produce flaky regressions. Marked `slow`; runs in the dedicated
-bench cell of the CI matrix (linux + py3.12 + --runslow).
+Linux x86_64 only — macOS GitHub runners have inconsistent CPU profiles that
+produce flaky regressions. Marked `slow`; runs in the dedicated bench cell of
+the CI matrix (linux + py3.12 + --runslow).
 
 Baseline lives in tests/integration/perf_baseline.json and updates manually
 (PR with bench rationale) when an intentional perf change lands.
@@ -50,7 +50,7 @@ def test_perf_benchmark(tmp_path: Path) -> None:
         pytest.skip(
             f"perf bench gate is linux-x86_64 only "
             f"(detected: {sys.platform}/{platform.machine()}); "
-            "macOS CPU profiles produce flaky regressions per LLD §5.7"
+            "macOS CPU profiles produce flaky regressions"
         )
 
     baseline = json.loads(BASELINE_PATH.read_text())

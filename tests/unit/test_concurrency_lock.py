@@ -1,6 +1,6 @@
 """Unit tests for concurrency.output_lock + detect_network_filesystem.
 
-LLD §3.7: non-blocking fcntl.flock; lock-held → IOFailure; NFS warning.
+: non-blocking fcntl.flock; lock-held → IOFailure; NFS warning.
 """
 
 from __future__ import annotations

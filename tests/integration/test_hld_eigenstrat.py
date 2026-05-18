@@ -1,6 +1,6 @@
 """HLD integration tests for EIGENSTRAT / BFILE / cross-format paths.
 
-Per LLD §5.3 / HLD §Validation strategy. Day 6 lands tests 7, 8, 10, 19:
+Per  /  strategy. Day 6 lands tests 7, 8, 10, 19:
 - Test 7: EIGENSTRAT round-trip (genotype matrix preserved through merge).
 - Test 8: plink2 a7.x quirks (POP from .ind col 3 via PHENO1→POP rename;
   FID==POP for AT2; no sex chromosomes by default).
@@ -52,7 +52,7 @@ pytestmark = [
 class TestHld19TempdirCleanupOnFailure:
     """Corrupted EIGENSTRAT → exit 2, stderr surfaced in error, no tempdir
     leak in $TMPDIR. The cleanup-on-failure path is the one easiest to break
-    silently (per HLD §Test 19 rationale)."""
+    silently."""
 
     def test_corrupt_eigenstrat_raises_iofailure(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad"
@@ -79,7 +79,7 @@ class TestHld19TempdirCleanupOnFailure:
         """After a plink2-failure run, no `pgen-samplebind-*` dir survives in $TMPDIR.
 
         Verifies that `tempfile.TemporaryDirectory` cleanup runs on the
-        exception path (LLD §3.3 pin: stdlib's native context manager handles
+        exception path ( pin: stdlib's native context manager handles
         cleanup on uncaught exceptions; no manual try/finally needed)."""
         tmpdir_root = Path(os.environ.get("TMPDIR", "/tmp"))
         before = {p.name for p in tmpdir_root.glob("pgen-samplebind-*")}
@@ -272,7 +272,7 @@ class TestHld10HashFormatInvariance:
     The hash is over the canonicalized .pvar (chrom, pos, ref, alt; sorted
     numerically; ID excluded). Cross-format invariance is the contract that
     makes the hash usable for cache identity in workflows that store panels
-    in different formats at different lifecycle points (HLD §Variant hash)."""
+    in different formats at different lifecycle points."""
 
     def test_pfile_bfile_eigenstrat_same_hash(self, tmp_path: Path) -> None:
         pfile_orig = tmp_path / "orig"

@@ -357,7 +357,7 @@ def _tally_actions_to_summary(
 
 
 def count_kept_variants(table: pd.DataFrame) -> int:
-    """Variants where no per-input action is DROP. Per 
+    """Variants where no per-input action is DROP.
 
     Used by `merge.merge_inputs` to construct PgenWriter with the exact
     variant_ct.

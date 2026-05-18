@@ -1,4 +1,4 @@
-"""Native ASCII per-line EIGENSTRAT support (HLD §Format detection v2).
+"""Native ASCII per-line EIGENSTRAT support.
 
 plink2 `--eigfile` only reads PACKEDANCESTRYMAP-format EIGENSTRAT (binary,
 `GENO `/`TGENO ` header). The older ASCII per-line variant (one digit per

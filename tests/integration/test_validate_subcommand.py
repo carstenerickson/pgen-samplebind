@@ -1,4 +1,4 @@
-"""Integration tests for the `validate` subcommand. Per LLD §4.2."""
+"""Integration tests for the `validate` subcommand."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class TestValidateSmoke:
 
 
 class TestValidateGateD:
-    """HLD §Exit-1 validation gates (d): --on-* error policies degrade to gate (d)
+    """-1 validation gates (d): --on-* error policies degrade to gate (d)
     in validate mode, exiting 1 instead of 3."""
 
     def test_on_missing_error_softens_to_validation_error(
