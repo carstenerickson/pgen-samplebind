@@ -23,17 +23,12 @@ from click.testing import CliRunner
 from pgen_samplebind.cli import cli
 from pgen_samplebind.errors import ValidationError
 from tests.fixtures import modifiers
+from tests.fixtures.helpers import read_psam_iids
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
 
 
 def _plink2_available() -> bool:
     return shutil.which("plink2") is not None
-
-
-def _read_psam_iids(prefix: Path) -> list[str]:
-    df = pd.read_csv(Path(str(prefix) + ".psam"), sep="\t")
-    iid_col = next(c for c in df.columns if c.lstrip("#") == "IID")
-    return df[iid_col].tolist()
 
 
 # ---------- HLD test 13 (basic target + EIGENSTRAT compose) ------------------
@@ -99,7 +94,7 @@ class TestHld13TargetEigfileCompose:
         assert result.exit_code == 0, result.output
 
         # Output has 6 panel samples + 1 target sample = 7
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         assert len(iids) == 7
         # Target sample appears (no collision since prefixes differ → keeps T00000)
         assert "T00000" in iids
@@ -157,7 +152,7 @@ class TestHld13TargetEigfileCompose:
         )
         assert result.exit_code == 0, result.output
 
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # 4 panel + 1 target = 5; target's colliding X00000 → X00000_target
         assert len(iids) == 5
         assert "X00000_target" in iids
@@ -389,7 +384,7 @@ class TestMultiTarget:
             ],
         )
         assert result.exit_code == 0, result.output
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # 4 panel + 2 targets = 6; targets keep their prefix-distinct IIDs.
         assert len(iids) == 6
         assert "T000000" in iids  # target 0's sole sample
@@ -417,7 +412,7 @@ class TestMultiTarget:
             ],
         )
         assert result.exit_code == 0, result.output
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         assert "P00000_target" in iids
         # Sanity: no `_target_4` (input_idx-based suffix) since we're single-target.
         assert not any(iid.endswith("_target_4") for iid in iids), iids
@@ -447,7 +442,7 @@ class TestMultiTarget:
             ],
         )
         assert result.exit_code == 0, result.output
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # Panel = input_idx 0 (canonical, no suffix). Targets are input_idx 1 and 2.
         assert "P00000_target_1" in iids, iids
         assert "P00000_target_2" in iids, iids

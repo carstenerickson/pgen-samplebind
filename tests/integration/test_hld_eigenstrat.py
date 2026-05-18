@@ -22,14 +22,15 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
-import pgenlib
 import pytest
 from click.testing import CliRunner
 
 from pgen_samplebind.cli import cli
 from pgen_samplebind.errors import IOFailure
 from tests.fixtures import modifiers
+from tests.fixtures.helpers import read_pgen_full as _read_pgen_full
+from tests.fixtures.helpers import read_psam as _read_psam
+from tests.fixtures.helpers import read_pvar as _read_pvar
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
 
 pytestmark = pytest.mark.eigenstrat
@@ -43,30 +44,6 @@ pytestmark = [
     pytest.mark.eigenstrat,
     pytest.mark.skipif(not _plink2_available(), reason="plink2 not on PATH"),
 ]
-
-
-def _read_pgen_full(prefix: Path, n_samples: int, n_variants: int) -> np.ndarray:
-    pgen_path = Path(str(prefix) + ".pgen")
-    reader = pgenlib.PgenReader(str(pgen_path).encode(), raw_sample_ct=n_samples)
-    try:
-        buf = np.empty((n_variants, n_samples), dtype=np.int8)
-        reader.read_range(0, n_variants, buf, sample_maj=0)
-        return buf
-    finally:
-        if hasattr(reader, "close"):
-            reader.close()
-
-
-def _read_psam(prefix: Path) -> pd.DataFrame:
-    df = pd.read_csv(Path(str(prefix) + ".psam"), sep="\t")
-    df.columns = [c.lstrip("#") for c in df.columns]
-    return df
-
-
-def _read_pvar(prefix: Path) -> pd.DataFrame:
-    df = pd.read_csv(Path(str(prefix) + ".pvar"), sep="\t")
-    df.columns = [c.lstrip("#") for c in df.columns]
-    return df
 
 
 # ---------- HLD test 19: tempdir cleanup on plink2 failure -------------------

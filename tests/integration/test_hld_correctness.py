@@ -26,39 +26,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pgenlib
 import pytest
 from click.testing import CliRunner
 
 from pgen_samplebind.cli import cli
 from tests.fixtures import modifiers
+from tests.fixtures.helpers import read_pgen_full as _read_pgen
+from tests.fixtures.helpers import read_psam_iids, read_pvar_keys
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
-
-# ---------- helpers ----------------------------------------------------------
-
-
-def _read_pgen(prefix: Path, n_samples: int, n_variants: int) -> np.ndarray:
-    pgen_path = Path(str(prefix) + ".pgen")
-    reader = pgenlib.PgenReader(str(pgen_path).encode(), raw_sample_ct=n_samples)
-    try:
-        buf = np.empty((n_variants, n_samples), dtype=np.int8)
-        reader.read_range(0, n_variants, buf, sample_maj=0)
-        return buf
-    finally:
-        if hasattr(reader, "close"):
-            reader.close()
-
-
-def _read_psam_iids(prefix: Path) -> list[str]:
-    df = pd.read_csv(Path(str(prefix) + ".psam"), sep="\t")
-    iid_col = next(c for c in df.columns if c.lstrip("#") == "IID")
-    return df[iid_col].tolist()
-
-
-def _read_pvar_keys(prefix: Path) -> list[tuple[int, int]]:
-    df = pd.read_csv(Path(str(prefix) + ".pvar"), sep="\t")
-    chrom_col = next(c for c in df.columns if c.lstrip("#") == "CHROM")
-    return list(zip(df[chrom_col].astype(int), df["POS"].astype(int), strict=True))
 
 
 # ---------- HLD test 1: round-trip identity ----------------------------------
@@ -102,9 +77,9 @@ class TestHld01RoundTripIdentity:
         assert result.exit_code == 0, result.output
 
         # IIDs unchanged (duplicates dropped → 10 samples kept)
-        assert _read_psam_iids(out) == _read_psam_iids(a.path)
+        assert read_psam_iids(out) == read_psam_iids(a.path)
         # All variants kept (passthrough across the second input → no drops)
-        assert _read_pvar_keys(out) == _read_pvar_keys(a.path)
+        assert read_pvar_keys(out) == read_pvar_keys(a.path)
         # Genotypes byte-identical
         original = _read_pgen(a.path, 10, 80)
         merged = _read_pgen(out, 10, 80)
@@ -153,15 +128,15 @@ class TestHld02ThreeWayAssociativity:
         assert r3.exit_code == 0, r3.output
 
         # Variants identical and in same order
-        assert _read_pvar_keys(abc1) == _read_pvar_keys(abc2)
+        assert read_pvar_keys(abc1) == read_pvar_keys(abc2)
 
         # Sample IIDs identical and in same order (canonical-first ordering
         # preserved through both paths since A is always input[0])
-        assert _read_psam_iids(abc1) == _read_psam_iids(abc2)
+        assert read_psam_iids(abc1) == read_psam_iids(abc2)
 
         # Genotype matrices identical
-        n_samples = len(_read_psam_iids(abc1))
-        n_variants = len(_read_pvar_keys(abc1))
+        n_samples = len(read_psam_iids(abc1))
+        n_variants = len(read_pvar_keys(abc1))
         m1 = _read_pgen(abc1, n_samples, n_variants)
         m2 = _read_pgen(abc2, n_samples, n_variants)
         np.testing.assert_array_equal(m1, m2)

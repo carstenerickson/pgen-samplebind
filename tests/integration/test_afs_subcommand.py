@@ -12,7 +12,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pgenlib
 import pytest
 from click.testing import CliRunner
 
@@ -20,19 +19,8 @@ from pgen_samplebind.afs import compute_afs
 from pgen_samplebind.cli import cli
 from pgen_samplebind.errors import InvariantViolation
 from pgen_samplebind.formats import prepared_input
+from tests.fixtures.helpers import read_pgen_full as _read_pgen_full
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
-
-
-def _read_pgen_full(prefix: Path, n_samples: int, n_variants: int) -> np.ndarray:
-    """Read the entire .pgen into (n_variants, n_samples) int8."""
-    pgen_path = Path(str(prefix) + ".pgen")
-    reader = pgenlib.PgenReader(str(pgen_path).encode(), raw_sample_ct=n_samples)
-    try:
-        buf = np.empty((n_variants, n_samples), dtype=np.int8)
-        reader.read_range(0, n_variants, buf)
-    finally:
-        reader.close()
-    return buf
 
 
 class TestAfsAggregationCorrectness:

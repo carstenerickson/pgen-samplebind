@@ -12,17 +12,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 from click.testing import CliRunner
 
 from pgen_samplebind.cli import cli
+from tests.fixtures.helpers import read_psam_iids
 from tests.fixtures.modifiers import make_panel_with_iids
-
-
-def _read_psam_iids(prefix: Path) -> list[str]:
-    df = pd.read_csv(Path(str(prefix) + ".psam"), sep="\t")
-    iid_col = next(c for c in df.columns if c.lstrip("#") == "IID")
-    return df[iid_col].tolist()
 
 
 class TestHld23CollisionSuffixScheme:
@@ -50,7 +44,7 @@ class TestHld23CollisionSuffixScheme:
         )
         assert result.exit_code == 0, result.output
 
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         assert iids == ["Sample1", "Sample1_1"]
 
     def test_case_ii_three_inputs_all_share_iid(self, tmp_path: Path) -> None:
@@ -78,7 +72,7 @@ class TestHld23CollisionSuffixScheme:
         )
         assert result.exit_code == 0, result.output
 
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         assert iids == ["Sample1", "Sample1_1", "Sample1_2"]
 
     def test_case_iii_iterative_build_idempotent_retry(self, tmp_path: Path) -> None:
@@ -109,7 +103,7 @@ class TestHld23CollisionSuffixScheme:
         )
         assert result.exit_code == 0, result.output
 
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # input[0] contributes Sample1 + Sample1_1 unchanged (canonical never
         # suffixed); input[1]'s Sample1 collides → tries Sample1_1 (taken) →
         # falls through to Sample1_1_1.
@@ -146,7 +140,7 @@ class TestHld23CollisionSuffixScheme:
         )
         assert result.exit_code == 0, result.output
 
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # panel's Sample1 stays canonical; target's Sample1 → Sample1_target
         # (target-mode suffix takes precedence over the general `_<idx>`).
         assert iids == ["Sample1", "Sample1_target"]
@@ -181,7 +175,7 @@ class TestSuffixSchemeAdditionalCases:
             ],
         )
         assert result.exit_code == 0, result.output
-        assert _read_psam_iids(out) == ["Sample1", "Sample1_target", "Sample1_target_1"]
+        assert read_psam_iids(out) == ["Sample1", "Sample1_target", "Sample1_target_1"]
 
     def test_canonical_internal_duplicate_raises(self, tmp_path: Path) -> None:
         """input[0] with internal duplicate IID under --on-collision suffix
