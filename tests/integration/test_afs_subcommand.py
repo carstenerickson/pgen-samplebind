@@ -361,3 +361,63 @@ class TestAfsSubcommandEndToEnd:
 
         freq = pd.read_csv(out_dir / "afs_freq.tsv", sep="\t")
         assert [c for c in freq.columns if c != "variant_id"] == ["pop_00", "pop_02"]
+
+
+class TestAfsIncludeSexChrom:
+    """The `--include-sex-chrom` flag is the only sex-chromosome code path
+    in the tool. Without it, autosomes (1-22) only; with it, X/Y/XY/MT
+    (23-26) are included alongside. Previously untested at integration
+    level despite being the documented option."""
+
+    def test_autosomes_only_excludes_chr23(self, tmp_path: Path) -> None:
+        spec = SyntheticPanelSpec(
+            n_samples=6,
+            n_variants=12,
+            n_populations=2,
+            pseudohaploid_fraction=0.0,
+            ambiguous_strand_fraction=0.0,
+            missing_rate=0.0,
+            chromosomes=(1, 2, 23),  # mix autosomes + X
+            variant_seed=991,
+            sample_seed=992,
+        )
+        desc = synthesize_pfile(spec, tmp_path / "panel")
+        out_dir = tmp_path / "afs_out"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["afs", str(desc.path), "-o", str(out_dir), "--quiet"]
+        )
+        assert result.exit_code == 0, result.output
+
+        snp = pd.read_csv(out_dir / "afs_snp.tsv", sep="\t")
+        # chrom 23 dropped → only autosomes remain
+        assert set(snp["chrom"].astype(int)) <= {1, 2}
+        assert 23 not in set(snp["chrom"].astype(int))
+
+    def test_include_sex_chrom_admits_chr23(self, tmp_path: Path) -> None:
+        spec = SyntheticPanelSpec(
+            n_samples=6,
+            n_variants=12,
+            n_populations=2,
+            pseudohaploid_fraction=0.0,
+            ambiguous_strand_fraction=0.0,
+            missing_rate=0.0,
+            chromosomes=(1, 2, 23),
+            variant_seed=991,
+            sample_seed=992,
+        )
+        desc = synthesize_pfile(spec, tmp_path / "panel")
+        out_dir = tmp_path / "afs_out"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["afs", str(desc.path), "-o", str(out_dir), "--include-sex-chrom", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+
+        snp = pd.read_csv(out_dir / "afs_snp.tsv", sep="\t")
+        # chrom 23 retained when sex chroms included
+        chrom_set = set(snp["chrom"].astype(int))
+        assert 23 in chrom_set

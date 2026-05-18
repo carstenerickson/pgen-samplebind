@@ -137,6 +137,39 @@ class TestSingleSampleMerge:
         assert "T00000" in read_psam_iids(out)
 
 
+class TestMergeZstInputs:
+    """The merge path reads .pvar through two code paths — pandas
+    (open_pvar_text) for alignment, and pgenlib's libzstd (PvarReader) in
+    check_max_alleles. Both must handle .pvar.zst transparently.
+    Previously only validate exercised the zst path."""
+
+    def test_zst_pvar_input_on_merge(
+        self, tiny_panel_a: Path, tiny_panel_b: Path, tmp_path: Path
+    ) -> None:
+        from tests.fixtures.modifiers import compress_pvar_to_zst
+
+        compress_pvar_to_zst(tiny_panel_a)
+        compress_pvar_to_zst(tiny_panel_b)
+
+        out = tmp_path / "merged"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(tiny_panel_a),
+                str(tiny_panel_b),
+                "-o",
+                str(out),
+                "--trust-strand",
+                "--quiet",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(read_psam_iids(out)) == 8
+        assert len(read_pvar_keys(out)) == 1
+
+
 class TestMergeIOFailures:
     """The CLI must surface IOFailure (exit code 2) when the input data
     files exist but are unreadable, or when the output directory cannot
