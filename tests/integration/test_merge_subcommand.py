@@ -264,6 +264,59 @@ class TestMergeOnCollisionError:
         assert "iid" in str(result.exception).lower()
 
 
+class TestMergeRebindOwnOutput:
+    """Issue #6: re-binding pgen-samplebind's own output with --population-column
+    FID used to crash because the prior-output's POP column collided with the
+    rename target.
+    """
+
+    def test_rebind_output_with_population_column_fid(
+        self, panel_a: Path, panel_b: Path, tmp_path: Path
+    ) -> None:
+        out_1 = tmp_path / "merged_1"
+        runner = CliRunner()
+        result_1 = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(panel_a),
+                str(panel_b),
+                "-o",
+                str(out_1),
+                "--trust-strand",
+                "--quiet",
+            ],
+        )
+        assert result_1.exit_code == 0, result_1.output
+
+        out_2 = tmp_path / "merged_2"
+        result_2 = runner.invoke(
+            cli,
+            [
+                "merge",
+                str(out_1),
+                str(out_1),
+                "-o",
+                str(out_2),
+                "--population-column",
+                "FID",
+                "--on-collision",
+                "first",
+                "--trust-strand",
+                "--quiet",
+            ],
+        )
+        assert result_2.exit_code == 0, result_2.output
+
+        import pandas as pd
+
+        df = pd.read_csv(Path(str(out_2) + ".psam"), sep="\t")
+        df.columns = [c.lstrip("#") for c in df.columns]
+        assert list(df.columns).count("POP") == 1
+        assert (df["FID"] == df["POP"]).all()
+        assert len(df) == 20
+
+
 class TestMergeQuietAndOutput:
     def test_default_emits_summary(self, panel_a: Path, panel_b: Path, tmp_path: Path) -> None:
         """Without --quiet, the simple summary block prints to stdout."""

@@ -105,6 +105,40 @@ class TestRenameToPop:
         assert "POP" in out.columns
         assert out["POP"].tolist() == ["x"]
 
+    def test_rebind_with_existing_pop_equal_to_source_drops_duplicate(self) -> None:
+        """Round-tripping pgen-samplebind's own output: prior merge wrote both
+        FID and POP equal to the population label. Re-binding with
+        --population-column FID would otherwise produce two POP columns
+        after rename (issue #6).
+        """
+        df = pd.DataFrame(
+            {
+                "FID": ["pop_a", "pop_b"],
+                "IID": ["s1", "s2"],
+                "SEX": ["1", "2"],
+                "POP": ["pop_a", "pop_b"],
+                "PSEUDOHAPLOID": ["0", "1"],
+            }
+        )
+        out = rename_to_pop(df, source_col="FID")
+        assert list(out.columns).count("POP") == 1
+        assert "FID" not in out.columns
+        assert out["POP"].tolist() == ["pop_a", "pop_b"]
+
+    def test_rebind_with_distinct_pop_raises(self) -> None:
+        """A genuine ambiguity — input has two candidate population columns
+        with different values — should raise rather than silently drop one.
+        """
+        df = pd.DataFrame(
+            {
+                "FID": ["fam_a", "fam_b"],
+                "IID": ["s1", "s2"],
+                "POP": ["pop_x", "pop_y"],
+            }
+        )
+        with pytest.raises(UsageError, match="distinct 'POP' column"):
+            rename_to_pop(df, source_col="FID")
+
 
 class TestAddFidFromPop:
     def test_fid_equals_pop(self) -> None:
