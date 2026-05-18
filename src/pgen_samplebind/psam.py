@@ -1,7 +1,5 @@
 """.psam parsing, population-column auto-detect, sample identity resolution,
 column union, write.
-
-Per LLD §3.5.
 """
 
 from __future__ import annotations
@@ -66,7 +64,7 @@ def read_psam(path: Path) -> pd.DataFrame:
 
 
 def detect_population_column(df: pd.DataFrame, override: str | None) -> str:
-    """Return the column holding population labels per HLD §Population labels.
+    """Return the column holding population labels.
 
     Try POP, then PHENO, then PHENO1; or use override if given.
 
@@ -172,7 +170,7 @@ def rename_to_pop(df: pd.DataFrame, source_col: str) -> pd.DataFrame:
 
 
 def add_fid_from_pop(df: pd.DataFrame) -> pd.DataFrame:
-    """Add or overwrite FID column = POP per HLD §Output PFILE.
+    """Add or overwrite FID column = POP.
 
     AT2 extract_f2 keys on FID, so emitting it ensures downstream interop.
     """
@@ -187,7 +185,7 @@ def read_relabel_tsv(
     input_col: str | None,
     output_col: str | None,
 ) -> pd.DataFrame:
-    """Read a relabel TSV in either 2-col or N-col form per HLD §Relabeling.
+    """Read a relabel TSV in either 2-col or N-col form.
 
     Decision rule:
       - Both input_col and output_col absent → 2-col header-less TSV
@@ -259,7 +257,7 @@ def apply_relabel(
 ) -> pd.DataFrame:
     """Map each sample's source_column value through the relabel; if found,
     set target_column to the relabel's output value. Otherwise leave
-    target_column as-is. Per HLD §Relabeling.
+    target_column as-is. Per .
 
     For 2-col relabel: source_column = "POP" (rows are POP→POP, collapse
     populations across inputs).
@@ -296,7 +294,7 @@ def resolve_sample_identity(
     target_idxs: tuple[int, ...] = (),
 ) -> SampleIdentityPlan:
     """Compute the SampleIdentityPlan from input psams + --on-collision policy.
-    Per HLD §IID collision handling (v3.5) and LLD §3.5.
+    Per  collision handling (v3.5) and 
 
     `target_idxs` is the (possibly empty) tuple of input indexes marked as
     targets via --target. Zero or one target: target collision suffix is
@@ -362,7 +360,7 @@ def _resolve_with_suffix(
     psams: list[pd.DataFrame],
     target_idxs: tuple[int, ...],
 ) -> SampleIdentityPlan:
-    """--on-collision suffix scheme per HLD §IID collision handling (v3.5).
+    """--on-collision suffix scheme per  collision handling (v3.5).
 
     Algorithm: sequential pass over inputs. Input[0] is canonical and never
     suffixed (raises if input[0] has internal duplicates). For input[N>0],

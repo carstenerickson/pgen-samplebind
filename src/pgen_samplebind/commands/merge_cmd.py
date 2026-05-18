@@ -1,4 +1,4 @@
-"""`merge` subcommand orchestrator. Sequence in LLD §4.1."""
+"""`merge` subcommand orchestrator. Sequence in """
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def _collect_sidecar_overrides(
 
 
 def _unlink_output_triplet(*paths: Path) -> None:
-    """Best-effort unlink of partial output files. Per LLD §4.1 fix #6:
+    """Best-effort unlink of partial output files. Per  fix #6:
     on PgenSamplebindError mid-pass-2 / psam-finalization, the orchestrator
     unlinks the .pgen / .pvar / .psam triplet so downstream pipelines never
     silently consume a half-built output. Atomic-rename across the triplet
@@ -104,7 +104,7 @@ def run_merge(
     relabel_input_col: str | None = None,
     relabel_output_col: str | None = None,
 ) -> None:
-    """Merge subcommand orchestrator. Per LLD §4.1.
+    """Merge subcommand orchestrator. Per 
 
     Target mode (--target): one or more targets are appended after the
     positional inputs. The canonical (input[0]) remains the first positional.
@@ -132,7 +132,7 @@ def run_merge(
     output_paths = {"pgen": out_pgen_path, "pvar": out_pvar_path, "psam": out_psam_path}
 
     with ExitStack() as stack:
-        # Step 3 (LLD §4.1): advisory output-prefix lock. Acquired BEFORE
+        # Step 3: advisory output-prefix lock. Acquired BEFORE
         # any input read so a held-lock failure exits 2 without touching
         # inputs. Released on context exit. NFS/SMB/CIFS triggers a stderr
         # warning since flock semantics there are advisory-only-on-paper.
@@ -165,7 +165,7 @@ def run_merge(
             df = psam.rename_to_pop(df, pop_col)
             psam_dfs.append(df)
 
-        # Step 7: --relabel-from per-input (HLD §Relabeling). Applied per-input
+        # Step 7: --relabel-from per-input. Applied per-input
         # before sample-bind so different inputs can have independent relabels.
         if relabel_from is not None:
             relabel_df = psam.read_relabel_tsv(relabel_from, relabel_input_col, relabel_output_col)
@@ -211,7 +211,7 @@ def run_merge(
         )
 
         # Steps 12-15: merge_inputs + psam finalization, wrapped in the
-        # output-cleanup wrapper per LLD §4.1 fix #6. On any PgenSamplebindError
+        # output-cleanup wrapper fix #6. On any PgenSamplebindError
         # (gate failure, IO failure, invariant violation), unlink the partial
         # triplet before re-raising so downstream pipelines never consume a
         # half-built output.

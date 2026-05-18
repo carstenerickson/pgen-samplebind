@@ -1,4 +1,4 @@
-"""`inspect` subcommand orchestrator. Sequence in LLD §4.4.
+"""`inspect` subcommand orchestrator. Sequence in 
 
 Emits format / sample count / variant count / populations / sex distribution
 / per-sample missingness histogram via PgenReader iteration.
@@ -35,7 +35,7 @@ _HISTOGRAM_BIN_LABELS = (
     "90-100%",
 )
 
-# Block size for the genotype iteration. Per LLD §4.4 step 5: not user-tunable
+# Block size for the genotype iteration. Per  step 5: not user-tunable
 # for inspect; matches the merge default.
 _INSPECT_BLOCK_SIZE = 2048
 

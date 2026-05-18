@@ -1,6 +1,6 @@
 """Shared dataclasses and enums.
 
-The contract surface between modules. See LLD §2 for the design rationale on each type.
+The contract surface between modules.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 # -----------------------------------------------------------------------------
-# Enums (LLD §2.1)
+# Enums
 # -----------------------------------------------------------------------------
 
 
@@ -61,7 +61,7 @@ class PseudohaploidStatus(Enum):
 
 
 class ExitCode(IntEnum):
-    """Stable across versions per HLD §Exit codes."""
+    """Stable across versions."""
 
     OK = 0
     VALIDATION_FAILURE = 1
@@ -71,7 +71,7 @@ class ExitCode(IntEnum):
 
 
 # -----------------------------------------------------------------------------
-# Policy literal types (LLD §2.4)
+# Policy literal types
 # -----------------------------------------------------------------------------
 
 OnMismatch = Literal["drop", "error"]
@@ -83,7 +83,7 @@ VariantKey = Literal["chr_pos", "id"]
 
 
 # -----------------------------------------------------------------------------
-# Input descriptor (LLD §2.3)
+# Input descriptor
 # -----------------------------------------------------------------------------
 
 
@@ -103,7 +103,7 @@ class InputDescriptor:
 
 
 # -----------------------------------------------------------------------------
-# Policy (LLD §2.4)
+# Policy
 # -----------------------------------------------------------------------------
 
 
@@ -130,7 +130,7 @@ class MergePolicy:
 
 
 # -----------------------------------------------------------------------------
-# Run summary (LLD §2.7)
+# Run summary
 # -----------------------------------------------------------------------------
 
 
@@ -150,13 +150,13 @@ class AlignmentSummary:
 
 
 # -----------------------------------------------------------------------------
-# Per-variant report row (LLD §2.8)
+# Per-variant report row
 # -----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class ReportRow:
-    """One row of the --report TSV (HLD §Reports)."""
+    """One row of the --report TSV."""
 
     variant_id: str
     chrom: int
@@ -167,7 +167,7 @@ class ReportRow:
 
 
 # -----------------------------------------------------------------------------
-# Variant hash output (LLD §2.9)
+# Variant hash output
 # -----------------------------------------------------------------------------
 
 
@@ -181,12 +181,12 @@ class VariantHash:
     canonical_form_bytes: int
 
     def render(self) -> str:
-        """Default emission: `sha256:<hex>` per HLD §Variant hash step 9."""
+        """Default emission: `sha256:<hex>`."""
         return f"sha256:{self.sha256_hex}"
 
 
 # -----------------------------------------------------------------------------
-# Orchestration types (LLD §2.10)
+# Orchestration types
 # -----------------------------------------------------------------------------
 
 

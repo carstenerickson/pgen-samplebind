@@ -76,7 +76,7 @@ def compute_afs(
             dropped at parse time (matches the pipeline's autosome-only
             convention).
         block_size: PgenReader block size for genotype streaming. Default
-            2048 matches the merge pipeline (LLD §3.10 calibrated).
+            2048 matches the merge pipeline ( calibrated).
 
     Returns:
         AfsResult with three data frames sized

@@ -264,7 +264,7 @@ def merge_command(
     "relabel_from",
     type=click.Path(path_type=Path),
     default=None,
-    help="TSV-driven POP relabel (per HLD §Relabeling). 2-col header-less or "
+    help="TSV-driven POP relabel. 2-col header-less or "
     "N-col with --relabel-input-col / --relabel-output-col.",
 )
 @click.option("--relabel-input-col", default=None)
@@ -312,7 +312,7 @@ def validate_command(
     quiet: bool,
 ) -> None:
     """Check alignment of inputs without writing output. Exits 0 if alignment
-    OK, 1 if any Exit-1 gate fires (HLD §Exit-1 validation gates), 3 on
+    OK, 1 if any Exit-1 gate fires, 3 on
     invariant violation (multi-allelic input, duplicate canonical keys,
     --on-collision error)."""
     if no_population_column and population_column is not None:

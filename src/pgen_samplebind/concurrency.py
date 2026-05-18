@@ -1,7 +1,7 @@
-"""Advisory output-prefix lock + filesystem warnings. Per LLD §3.7.
+"""Advisory output-prefix lock + filesystem warnings. Per 
 
 `output_lock(prefix)` takes a non-blocking `fcntl.flock` on `{prefix}.lock`.
-Released on context exit. Used by the `merge` orchestrator (LLD §4.1 step 3)
+Released on context exit. Used by the `merge` orchestrator ( step 3)
 so two concurrent invocations writing to the same prefix can't silently
 corrupt each other's outputs.
 

@@ -1,6 +1,6 @@
 """Per-sample heterozygosity tally during pass 2; classification at end.
 
-Per LLD §3.8. Cutoffs match HLD §Pseudohaploid detection:
+Per  Cutoffs match  detection:
   het_count == 0 over non-missing autosomal calls → PSEUDOHAPLOID
   het_rate >= 5% → DIPLOID
   0 < het_rate < 5% → UNKNOWN
@@ -65,7 +65,7 @@ def update_block(
 
 
 def classify(het_count: int, called_count: int) -> PseudohaploidStatus:
-    """Per-sample classification per HLD §Pseudohaploid detection.
+    """Per-sample classification.
 
     Boundary: called_count == 0 → UNKNOWN (no signal; honest answer).
     """

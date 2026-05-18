@@ -1,7 +1,7 @@
 """Pass 1 + Exit-1 gate evaluation + pass 2: PgenReader/Writer orchestration,
 genotype recoding, output writing.
 
-Per LLD §3.10 and HLD §Module orchestration. The HLD-pinned signature
+The HLD-pinned signature
 `merge_inputs(inputs, out_pgen_path, out_pvar_path, options) -> MergeCounters`
 encapsulates pass 1 + gates + pass 2 in a single call; the orchestrator
 finalizes `.psam` from the returned MergeCounters.
@@ -44,13 +44,13 @@ def _check_target_call_rate(
     n_canonical_variants: int,
     min_call_rate: float,
 ) -> None:
-    """Gate (c) per HLD §Exit-1 validation gates (c) and §Target mode.
+    """Gate (c) per -1 validation gates (c) and §Target mode.
 
     For each kept target sample, computes call_rate = called_count /
     n_canonical_variants and raises ValidationError if any sample falls
     below min_call_rate. The denominator is pinned to canonical (panel)
     variant count to prevent a tiny-but-fully-called target from spuriously
-    passing the gate (HLD §Target mode).
+    passing the gate.
     """
     if n_canonical_variants <= 0:
         return  # nothing to check
@@ -95,7 +95,7 @@ def _iter_blocks_chrom_aware(table: pd.DataFrame, block_size: int) -> Iterator[t
       - Has at most `block_size` rows.
       - Does not span a chromosome boundary.
 
-    Per LLD §3.10 chromosome-boundary pin (lets pseudohaploid.update_block
+    Per  chromosome-boundary pin (lets pseudohaploid.update_block
     receive a single chrom value per block).
     """
     n = len(table)
@@ -120,7 +120,7 @@ def _swap_genotypes_in_rows(buf: np.ndarray[Any, Any], row_mask: np.ndarray[Any,
     per row needing the swap.
 
     REF_ALT_SWAP and STRAND_FLIP_AND_SWAP both reduce to this single op
-    on hardcalls (LLD §2.1 action-collapse pin: strand-flip alone is
+    on hardcalls ( action-collapse pin: strand-flip alone is
     metadata-only on biallelic SNPs).
     """
     if not row_mask.any():
@@ -249,7 +249,7 @@ def merge_inputs(
     out_pvar_path: Path,
     ctx: MergeContext,
 ) -> MergeCounters:
-    """Pass 1 + Exit-1 gate evaluation + pass 2 per LLD §3.10.
+    """Pass 1 + Exit-1 gate evaluation + pass 2
 
     Internally:
       1. Read pvars; build alignment_table via alignment.build_alignment_table.
@@ -262,7 +262,7 @@ def merge_inputs(
       5. Update per_sample_het counters per block via pseudohaploid.update_block.
       6. Write out_pvar_path (TSV) after the .pgen completes.
 
-    Returns MergeCounters per HLD §Module orchestration.
+    Returns MergeCounters.
 
     Raises:
         ValidationError: gate (a) or (b) fires.
@@ -385,7 +385,7 @@ def merge_inputs(
     # ----- Pass 2 outputs -----
     _write_pvar_tsv(kept_table, out_pvar_path)
 
-    # ----- Reports (per LLD §3.10 step 7-8) -----
+    # ----- Reports (per  step 7-8) -----
     if ctx.report_tsv_path is not None:
         reporting.write_report_tsv(alignment_table, len(inputs), ctx.report_tsv_path)
 
@@ -401,11 +401,11 @@ def merge_inputs(
     ]
 
     # ----- Gate (c): target call rate -----
-    # Per HLD §Exit-1 validation gates (c): each target's call rate (non-missing
+    # Per -1 validation gates (c): each target's call rate (non-missing
     # genotypes / canonical variant count) must be >= policy.target_min_call_rate.
     # Genotype-dependent → checked here post-pass-2, not in evaluate_pass1_gates.
-    # Per LLD §3.10: if it fires, the .pgen/.pvar exist on disk; the orchestrator's
-    # try/except (LLD §4.1 fix #6) unlinks the partial triplet. Multi-target
+    # Per : if it fires, the .pgen/.pvar exist on disk; the orchestrator's
+    # try/except unlinks the partial triplet. Multi-target
     # mode evaluates the gate independently per target — strict semantics: any
     # failing target blocks the whole merge.
     for target_idx, desc in enumerate(inputs):

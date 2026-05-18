@@ -1,6 +1,6 @@
 """Stdout summary, TSV per-variant report, JSON report.
 
-Per LLD §3.11. The TSV report is bulk-written from the alignment table
+Per  The TSV report is bulk-written from the alignment table
 post-pass-2 (memory bounded by alignment_table size which we already
 hold for the merge); the JSON report defaults to summary-only
 (workflow-friendly, ~few KB) with `--report-json-include-rows` opting
@@ -29,7 +29,7 @@ from .types import (
 
 # Conservative bytes-per-JSON-row estimate for the size warning.
 # The buffered Python object footprint is higher than this; the warning
-# fires before the user actually feels memory pressure (see LLD §3.11 caveat).
+# fires before the user actually feels memory pressure (see  caveat).
 _JSON_BYTES_PER_ROW = 100
 _JSON_INCLUDE_ROWS_WARN_BYTES = 100 * 1024 * 1024  # 100 MB
 
@@ -43,7 +43,7 @@ def format_stdout_summary(
     elapsed_s: float,
     quiet: bool,
 ) -> str:
-    """Render the HLD §Stdout summary block. Empty string if quiet=True."""
+    """Render the  summary block. Empty string if quiet=True."""
     if quiet:
         return ""
 
@@ -139,11 +139,11 @@ def write_report_tsv(
     n_inputs: int,
     path: Path,
 ) -> None:
-    """Per-variant action TSV per HLD §Reports.
+    """Per-variant action TSV.
 
     Header: variant_id\\tchr\\tpos\\tinput_index\\taction\\treason
     One row per (variant, non-canonical input_index). Canonical (input_index=0)
-    rows are implicit PASSTHROUGH and skipped per LLD §3.11 pin (saves
+    rows are implicit PASSTHROUGH and skipped pin (saves
     O(V) rows on file size at no information loss).
 
     Bulk-write via pandas.to_csv per non-canonical input. Memory cost is
@@ -180,7 +180,7 @@ def _serialize_variant_rows(rows: list[ReportRow]) -> list[dict[str, Any]]:
     """Render `ReportRow` objects as JSON-friendly dicts.
 
     Same field set as the TSV row format. Caller has already handled the
-    canonical-row skip per LLD §3.11.
+    canonical-row skip
     """
     return [
         {
@@ -199,7 +199,7 @@ def build_variant_rows_from_alignment(
     alignment_table: pd.DataFrame, n_inputs: int
 ) -> list[ReportRow]:
     """Build `ReportRow` objects from the alignment table for the JSON
-    include-rows path. Skips canonical (input_index=0) per LLD §3.11.
+    include-rows path. Skips canonical (input_index=0)
 
     Used by `merge.merge_inputs` when ctx.collect_variant_rows is True,
     and by `validate`'s orchestrator (which builds rows from the alignment
@@ -240,7 +240,7 @@ def _maybe_warn_json_size(n_output_variants: int, n_inputs: int, quiet: bool) ->
 
     Threshold is the JSON byte size at write time; Python object footprint
     during merge is higher. Warning is conservative on purpose — fires
-    before users see the memory wall (LLD §3.11).
+    before users see the memory wall.
     """
     if quiet:
         return
@@ -267,7 +267,7 @@ def write_report_json(
     mode: str = "merge",
     tool_version: str = "",
 ) -> None:
-    """Run-level JSON report per HLD §Reports + LLD §3.11.
+    """Run-level JSON report per  + 
 
     Default (include_rows=False): summary-only (~few KB). Workflow-friendly.
     include_rows=True: adds `variants` array from `counters.variant_rows`;
@@ -307,9 +307,9 @@ def write_report_json(
         },
         "alignment": {
             "action_histogram": dict(counters.action_histogram),
-            # Per-chromosome 8-key breakdown. JSON object keys must be strings,
-            # so stringify the chrom int. Consumers read with `int(k)`. See
-            # CHANGELOG v0.2 — adds diagnostic for chr-specific drop concentrations
+            # Per-chromosome 9-key breakdown. JSON object keys must be strings,
+            # so stringify the chrom int. Consumers read with `int(k)`. Added
+            # in v0.2 as a diagnostic for chr-specific drop concentrations
             # (HLA strand artifacts, hg19/hg38 build mismatches, etc.).
             "action_histogram_per_chrom": {
                 str(chrom): dict(hist)

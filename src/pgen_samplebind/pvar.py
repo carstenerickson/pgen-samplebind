@@ -1,6 +1,6 @@
 """.pvar parsing, biallelic-SNP filter, multi-allelic startup check, chromosome normalization.
 
-Per LLD §3.4. Pandas-driven for the speed and memory wins documented in the pgenlib-verify-report.
+Per  Pandas-driven for the speed and memory wins documented in the pgenlib-verify-report.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ _CHROM_LETTER_MAP: dict[str, int] = {"X": 23, "Y": 24, "MT": 26, "M": 26}
 
 
 def normalize_chrom(s: str | int) -> int:
-    """Chromosome string → int per HLD §Variant alignment.
+    """Chromosome string → int.
 
     1-22 numeric, X/chrX/23 → 23, Y/chrY/24 → 24, MT/chrMT/chrM/26 → 26.
     `chr` prefix stripped if present.
@@ -237,7 +237,7 @@ def read_pvar(path: Path) -> pd.DataFrame:
 
 
 def validate_unique_keys(df: pd.DataFrame, key: str) -> None:
-    """Assert no duplicate keys in canonical input. Per LLD §3.4 / HLD §Variant alignment.
+    """Assert no duplicate keys in canonical input. Per  /  alignment.
 
     Called only for input[0] before alignment. Catches the corner where input[0] was
     itself produced by a buggy merge or malformed source file.
@@ -272,7 +272,7 @@ def validate_unique_keys(df: pd.DataFrame, key: str) -> None:
         first_dup_key = str(first_dup_row["id"])
     raise InvariantViolation(
         f"duplicate canonical {col_label} key: {first_dup_key!r}. Input[0] must have unique "
-        f"variant keys (HLD §Variant alignment)."
+        f"variant keys."
     )
 
 
