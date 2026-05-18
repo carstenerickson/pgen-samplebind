@@ -112,10 +112,49 @@ def try_detect_population_column(df: pd.DataFrame, override: str | None) -> str 
     return None
 
 
+def _assert_single_pop_column(df: pd.DataFrame, caller: str) -> None:
+    """Guard against duplicate `POP` columns. Reachable only via a caller
+    that constructs a duplicate-column DataFrame directly (not via the
+    normal `read_psam` path, which mangles duplicates). Surfaces a clear
+    InvariantViolation in place of pandas' "truth value of a Series is
+    ambiguous" / "Cannot set a DataFrame ..." downstream errors.
+    """
+    n_pop = int((df.columns == "POP").sum())
+    if n_pop > 1:
+        raise InvariantViolation(
+            f"{caller}: .psam has {n_pop} 'POP' columns; expected at most one. "
+            f"Columns: {list(df.columns)}"
+        )
+
+
 def rename_to_pop(df: pd.DataFrame, source_col: str) -> pd.DataFrame:
-    """Rename `source_col` to 'POP'. No-op if already 'POP'."""
+    """Rename `source_col` to 'POP'. No-op if already 'POP'.
+
+    When `source_col != "POP"` and a `POP` column is already present, the
+    rename would produce a DataFrame with two `POP` columns and downstream
+    `df["POP"]` lookups would return a 2-column frame rather than a Series
+    (issue #6). This happens when re-binding pgen-samplebind's own output,
+    which always carries a `POP` column alongside whatever the user passed
+    as `--population-column`. We resolve it here:
+      - If existing `POP` is element-wise equal to `source_col`, drop the
+        duplicate (round-trip case — pgen-samplebind writes POP=FID via
+        `add_fid_from_pop`, so values match by construction).
+      - Otherwise raise UsageError: the input has two distinct candidate
+        population columns and the tool can't pick silently.
+    """
+    _assert_single_pop_column(df, "rename_to_pop")
     if source_col == "POP":
         return df
+    if "POP" in df.columns:
+        if (df["POP"].astype(str) == df[source_col].astype(str)).all():
+            df = df.drop(columns=["POP"])
+        else:
+            raise UsageError(
+                f"Cannot rename {source_col!r} → 'POP': a distinct 'POP' column "
+                f"already exists with different values. Use --population-column POP "
+                f"to keep the existing POP, or drop the conflicting column from the "
+                f"input .psam."
+            )
     return df.rename(columns={source_col: "POP"})
 
 
@@ -124,6 +163,7 @@ def add_fid_from_pop(df: pd.DataFrame) -> pd.DataFrame:
 
     AT2 extract_f2 keys on FID, so emitting it ensures downstream interop.
     """
+    _assert_single_pop_column(df, "add_fid_from_pop")
     out = df.copy()
     out["FID"] = out["POP"]
     return out
