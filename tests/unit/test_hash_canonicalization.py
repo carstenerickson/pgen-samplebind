@@ -1,9 +1,8 @@
-"""Unit tests for hashing.canonicalize_pvar_bytes — HLD §Variant hash spec.
+"""Unit tests for hashing.canonicalize_pvar_bytes — canonical-hash spec.
 
 Tests the canonicalization spec at the byte level (no SHA-256 involved).
-HLD test 11 (order invariance) and HLD test 12 (ID invariance) are exercised here
-at the unit level; the integration version against on-disk files is in
-tests/integration/.
+Order invariance and ID invariance are exercised here at the unit level;
+the integration version against on-disk files is in tests/integration/.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ class TestCanonicalizationFormat:
 
 
 class TestSortInvariance:
-    """HLD test 11: same variant set in two different orderings → same hash."""
+    """Same variant set in two different orderings → same hash."""
 
     def test_chromosome_order_irrelevant(self) -> None:
         df_a = _make_pvar_df([1, 2], [100, 200], ["rs1", "rs2"], ["A", "C"], ["G", "T"])
@@ -65,9 +64,28 @@ class TestSortInvariance:
 
 
 class TestIDInvariance:
-    """HLD test 12: same variant set with different ID conventions → same hash."""
+    """Same variant set with different ID conventions → same hash."""
 
     def test_rs_vs_chrposrefalt_id_irrelevant(self) -> None:
         df_a = _make_pvar_df([1, 2], [100, 200], ["rs1", "rs2"], ["A", "C"], ["G", "T"])
         df_b = _make_pvar_df([1, 2], [100, 200], ["1:100:A:G", "2:200:C:T"], ["A", "C"], ["G", "T"])
         assert canonicalize_pvar_bytes(df_a) == canonicalize_pvar_bytes(df_b)
+
+
+class TestRefAltTiebreak:
+    """When (chrom, pos) collide (e.g., a tri-allelic site stored as two
+    biallelic rows), the canonical order must still be well-defined so the
+    hash is invariant to the original physical row order across formats.
+    """
+
+    def test_same_locus_two_alts_order_invariant(self) -> None:
+        df_a = _make_pvar_df([1, 1], [100, 100], ["v1", "v2"], ["A", "A"], ["C", "T"])
+        df_b = _make_pvar_df([1, 1], [100, 100], ["v2", "v1"], ["A", "A"], ["T", "C"])
+        assert canonicalize_pvar_bytes(df_a) == canonicalize_pvar_bytes(df_b)
+
+    def test_same_locus_alt_then_ref_tiebreak(self) -> None:
+        """ref tiebreaks before alt: rows with same (chrom, pos) emit in
+        ref-ascending then alt-ascending order."""
+        df = _make_pvar_df([1, 1], [100, 100], ["a", "b"], ["G", "A"], ["T", "C"])
+        out = canonicalize_pvar_bytes(df)
+        assert out == b"1\t100\tA\tC\n1\t100\tG\tT\n"
