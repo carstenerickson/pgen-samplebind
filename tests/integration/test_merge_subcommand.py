@@ -264,16 +264,40 @@ class TestMergeOnCollisionError:
         assert "iid" in str(result.exception).lower()
 
 
+def _convert_psam_to_fid_layout(prefix: Path, fid_value: str) -> None:
+    """Rewrite `<prefix>.psam` so the population label lives in FID with no
+    separate POP column. Mirrors EIGENSTRAT-derived real-world inputs (the
+    setup in issue #6, where `--population-column FID` is the user's
+    natural invocation)."""
+    import pandas as pd
+
+    psam_path = Path(str(prefix) + ".psam")
+    df = pd.read_csv(psam_path, sep="\t", dtype=str)
+    df.columns = [c.lstrip("#") for c in df.columns]
+    df = df.drop(columns=["POP"], errors="ignore")
+    df.insert(0, "FID", fid_value)
+    df.columns = ["#" + c if i == 0 else c for i, c in enumerate(df.columns)]
+    df.to_csv(psam_path, sep="\t", index=False, lineterminator="\n")
+
+
 class TestMergeRebindOwnOutput:
     """Issue #6: re-binding pgen-samplebind's own output with --population-column
     FID used to crash because the prior-output's POP column collided with the
     rename target.
     """
 
-    def test_rebind_output_with_population_column_fid(
-        self, panel_a: Path, panel_b: Path, tmp_path: Path
+    def test_rebind_output_plus_new_panel_with_population_column_fid(
+        self, panel_a: Path, panel_b: Path, panel_c: Path, tmp_path: Path
     ) -> None:
-        out_1 = tmp_path / "merged_1"
+        """Mirrors the issue's exact repro: ``merge a b -o merged
+        --population-column FID`` then ``merge merged c -o merged_rich
+        --population-column FID``. Panel c carries FID (matching the
+        EIGENSTRAT-derived real-world inputs from the issue)."""
+        _convert_psam_to_fid_layout(panel_a, fid_value="pop_a")
+        _convert_psam_to_fid_layout(panel_b, fid_value="pop_b")
+        _convert_psam_to_fid_layout(panel_c, fid_value="pop_c")
+
+        out_1 = tmp_path / "merged"
         runner = CliRunner()
         result_1 = runner.invoke(
             cli,
@@ -283,25 +307,25 @@ class TestMergeRebindOwnOutput:
                 str(panel_b),
                 "-o",
                 str(out_1),
+                "--population-column",
+                "FID",
                 "--trust-strand",
                 "--quiet",
             ],
         )
         assert result_1.exit_code == 0, result_1.output
 
-        out_2 = tmp_path / "merged_2"
+        out_2 = tmp_path / "merged_rich"
         result_2 = runner.invoke(
             cli,
             [
                 "merge",
                 str(out_1),
-                str(out_1),
+                str(panel_c),
                 "-o",
                 str(out_2),
                 "--population-column",
                 "FID",
-                "--on-collision",
-                "first",
                 "--trust-strand",
                 "--quiet",
             ],
@@ -314,7 +338,7 @@ class TestMergeRebindOwnOutput:
         df.columns = [c.lstrip("#") for c in df.columns]
         assert list(df.columns).count("POP") == 1
         assert (df["FID"] == df["POP"]).all()
-        assert len(df) == 20
+        assert len(df) == 30
 
 
 class TestMergeQuietAndOutput:

@@ -112,6 +112,21 @@ def try_detect_population_column(df: pd.DataFrame, override: str | None) -> str 
     return None
 
 
+def _assert_single_pop_column(df: pd.DataFrame, caller: str) -> None:
+    """Guard against duplicate `POP` columns. Reachable only via a caller
+    that constructs a duplicate-column DataFrame directly (not via the
+    normal `read_psam` path, which mangles duplicates). Surfaces a clear
+    InvariantViolation in place of pandas' "truth value of a Series is
+    ambiguous" / "Cannot set a DataFrame ..." downstream errors.
+    """
+    n_pop = int((df.columns == "POP").sum())
+    if n_pop > 1:
+        raise InvariantViolation(
+            f"{caller}: .psam has {n_pop} 'POP' columns; expected at most one. "
+            f"Columns: {list(df.columns)}"
+        )
+
+
 def rename_to_pop(df: pd.DataFrame, source_col: str) -> pd.DataFrame:
     """Rename `source_col` to 'POP'. No-op if already 'POP'.
 
@@ -127,6 +142,7 @@ def rename_to_pop(df: pd.DataFrame, source_col: str) -> pd.DataFrame:
       - Otherwise raise UsageError: the input has two distinct candidate
         population columns and the tool can't pick silently.
     """
+    _assert_single_pop_column(df, "rename_to_pop")
     if source_col == "POP":
         return df
     if "POP" in df.columns:
@@ -147,6 +163,7 @@ def add_fid_from_pop(df: pd.DataFrame) -> pd.DataFrame:
 
     AT2 extract_f2 keys on FID, so emitting it ensures downstream interop.
     """
+    _assert_single_pop_column(df, "add_fid_from_pop")
     out = df.copy()
     out["FID"] = out["POP"]
     return out

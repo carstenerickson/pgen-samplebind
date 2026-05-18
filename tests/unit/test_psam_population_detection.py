@@ -139,6 +139,17 @@ class TestRenameToPop:
         with pytest.raises(UsageError, match="distinct 'POP' column"):
             rename_to_pop(df, source_col="FID")
 
+    def test_duplicate_pop_columns_raises_invariant(self) -> None:
+        """Guard against duplicate POP columns arriving at rename_to_pop.
+        Not reachable via the normal read_psam path (pandas mangles
+        duplicate headers), but the guard turns a confusing pandas error
+        into a clear InvariantViolation if some other caller ever
+        constructs such a DataFrame.
+        """
+        df = pd.DataFrame([["a", "x", "y"]], columns=["IID", "POP", "POP"])
+        with pytest.raises(InvariantViolation, match="2 'POP' columns"):
+            rename_to_pop(df, source_col="IID")
+
 
 class TestAddFidFromPop:
     def test_fid_equals_pop(self) -> None:
@@ -153,3 +164,13 @@ class TestAddFidFromPop:
         df = pd.DataFrame({"FID": ["old"], "IID": ["a"], "POP": ["new"]})
         out = add_fid_from_pop(df)
         assert out["FID"].tolist() == ["new"]
+
+    def test_duplicate_pop_columns_raises_invariant(self) -> None:
+        """Defense in depth: rename_to_pop now guarantees a single POP, but
+        the same guard in add_fid_from_pop ensures a direct caller passing
+        duplicates gets a clear error instead of pandas' "Cannot set a
+        DataFrame with multiple columns to FID" (issue #6's symptom).
+        """
+        df = pd.DataFrame([["a", "x", "y"]], columns=["IID", "POP", "POP"])
+        with pytest.raises(InvariantViolation, match="2 'POP' columns"):
+            add_fid_from_pop(df)
