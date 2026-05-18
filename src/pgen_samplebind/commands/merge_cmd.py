@@ -225,12 +225,18 @@ def run_merge(
             merged_psam = psam.merge_psams(psam_dfs, sample_plan)
 
             # Step 14: classify pseudohaploid; assign PSEUDOHAPLOID column.
-            # Row-order invariant assertion (LLD §4.1 fix #1):
-            if __debug__:
-                for i, (iid_in_counters, _, _) in enumerate(counters.per_sample_het):
-                    assert (
-                        iid_in_counters == sample_plan.output_iids[i] == merged_psam.iloc[i]["IID"]
-                    ), (
+            # Row-order invariant: the IID at position i must agree across
+            # the pass-2 counters (genotype-column order), the sample plan
+            # (output-IID order), and the merged psam (row order). A
+            # mismatch here means a refactor broke the sample-axis
+            # alignment — the failure mode is silent genotype/sample
+            # misassignment in the output, so we enforce unconditionally
+            # rather than under `__debug__`.
+            for i, (iid_in_counters, _, _) in enumerate(counters.per_sample_het):
+                if not (
+                    iid_in_counters == sample_plan.output_iids[i] == merged_psam.iloc[i]["IID"]
+                ):
+                    raise InvariantViolation(
                         f"row-order invariant violated at i={i}: "
                         f"counters={iid_in_counters!r}, "
                         f"plan={sample_plan.output_iids[i]!r}, "

@@ -279,8 +279,8 @@ def validate_unique_keys(df: pd.DataFrame, key: str) -> None:
 def check_max_alleles(pgen_path: Path) -> None:
     """Open .pgen via pgenlib.PvarReader and assert get_max_allele_ct() == 2.
 
-    Per HLD §Non-SNP handling: multi-allelic input causes uncatchable C-layer
-    SIGSEGV in PgenReader.read_range, so we must reject at startup.
+    Multi-allelic input causes uncatchable C-layer SIGSEGV in
+    PgenReader.read_range, so we must reject at startup.
 
     Raises:
         InvariantViolation: max_allele_ct > 2.
@@ -302,8 +302,13 @@ def check_max_alleles(pgen_path: Path) -> None:
     try:
         max_alleles = pv.get_max_allele_ct()
     finally:
-        # pgenlib readers don't always have an explicit close; rely on GC.
-        pass
+        # PvarReader holds C-allocated state; release it deterministically
+        # rather than relying on Python GC. Older pgenlib versions don't
+        # expose .close(), so del-the-reference is the portable form.
+        close = getattr(pv, "close", None)
+        if callable(close):
+            close()
+        del pv
     if max_alleles > 2:
         raise InvariantViolation(
             f"{pgen_path} contains multi-allelic variants (max_allele_ct={max_alleles}); "

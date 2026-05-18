@@ -194,10 +194,13 @@ class VariantHash:
 class MergeCounters:
     """Returned by merge.merge_inputs after pass 2; consumed by run_merge.
 
-    Field set per HLD §Module orchestration. action_histogram keys per LLD
-    §2.10 8-key mapping pin (passthrough, swap, flip, fill_missing,
-    dropped_ambiguous_strand, dropped_allele_mismatch,
-    pre_alignment_filter_dropped, drop).
+    action_histogram has a fixed 9-key schema — always all of:
+    passthrough, swap, flip, fill_missing, dropped_ambiguous_strand,
+    dropped_allele_mismatch, dropped_on_strand,
+    pre_alignment_filter_dropped, drop. All keys are always present in
+    the emitted JSON so workflow consumers can rely on the schema
+    regardless of merge outcome — don't drop or rename a key without
+    auditing the report-JSON consumers.
     """
 
     action_histogram: dict[str, int] = field(default_factory=dict)
