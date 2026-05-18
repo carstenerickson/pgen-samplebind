@@ -1,3 +1,3 @@
 """pgen-samplebind: bind PFILE/BFILE/EIGENSTRAT genotype datasets sharing a variant set."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.2"

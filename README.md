@@ -285,7 +285,7 @@ End-to-end byte-equal qpAdm parity against the established `mergeit + plink2 + A
 
 ## Status
 
-v0.3.0 — performance + cleanup release. Five vectorizations across the merge hot path (pass-1 alignment truth-table lookup, pass-2 block placement, chromosome-cast, duplicate-key check, action histogram) cut Python-level loops from the long poles; estimated 20-40% wallclock reduction at 1240k scale. Drops the never-implemented `--threads` flag. End-to-end byte-equal qpAdm parity continues to be proven on every commit against the `mergeit + plink2 + AdmixTools 2` reference pipeline via the AADR-derivative dogfood CI.
+v0.3.2 — bugfix release. Closes [#6](https://github.com/carstenerickson/pgen-samplebind/issues/6): re-binding pgen-samplebind's own output with `--population-column FID` previously crashed because the prior output's `POP` column collided with the rename target. `psam.rename_to_pop` is now round-trippable through itself, unblocking the documented "panel extension" canonical use case (incrementally adding populations to a previously-bound dataset without rebuilding the full merge from scratch).
 
 See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations.
 

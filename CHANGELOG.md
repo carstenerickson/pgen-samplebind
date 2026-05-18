@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-18
+
+### Fixed
+
+- **`merge` crash when re-binding pgen-samplebind's own output with `--population-column FID`.** Closes [#6](https://github.com/carstenerickson/pgen-samplebind/issues/6). The first merge writes `[FID, IID, SEX, POP, PSEUDOHAPLOID]`; a second `merge` of that output with `--population-column FID` would rename `FID → POP` over the existing POP column, producing two POP columns and tripping `add_fid_from_pop` with `ValueError: Cannot set a DataFrame with multiple columns to the single column FID`. `psam.rename_to_pop` now drops the duplicate when existing POP equals the source column element-wise (the round-trip case — pgen-samplebind writes POP=FID by construction so values match) and raises `UsageError` with clear remediation guidance when they differ (a custom .psam with two genuinely distinct candidate population columns). New `_assert_single_pop_column` guard in `rename_to_pop` and `add_fid_from_pop` converts any future duplicate-POP arrival into a clear `InvariantViolation` instead of a cryptic pandas error. Unblocks the README's first canonical use case — incremental panel construction without rebuilding the full merge from scratch (the iterated-bind pattern surfaced during a 28-population f2 cache build for AT2 qpAdm).
+
 ## [0.3.1] - 2026-05-16
 
 ### Added
@@ -139,7 +145,9 @@ Initial public release. The missing `plink2 --pmerge` non-concatenating case for
 - BFILE-only output not supported (use `plink2 --pfile out --make-bed` if needed).
 - EIGENSTRAT/BFILE input requires `plink2 v2.0.0-a.7.1+` on PATH (the `--eigfile`/`--make-pgen` path); pure-PFILE workflows have no plink2 dependency.
 
-[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/carstenerickson/pgen-samplebind/releases/tag/v0.1.0
