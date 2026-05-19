@@ -104,7 +104,7 @@ def read_sidecar(prefix: Path) -> dict[str, PseudohaploidStatus] | None:
     format suffix (`/data/sample.geno`); the suffix is stripped to locate
     the sidecar at the canonical base.
 
-    Schema v1 (per pileup-aadr LLD §output.py):
+    Schema v1 (from pileup-aadr's `output.py`):
         {
           "schema_version": 1,
           "samples": {

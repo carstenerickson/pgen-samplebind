@@ -541,7 +541,7 @@ def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
 def build_action_histogram_per_chrom(
     alignment_table: pd.DataFrame,
 ) -> dict[int, dict[str, int]]:
-    """Per-chromosome 8-key action histogram. Same key contract as
+    """Per-chromosome 9-key action histogram. Same key contract as
     `build_action_histogram`; bucketed by the canonical `chrom` column.
 
     Diagnostic for chr-specific drop concentrations that the global
@@ -550,7 +550,7 @@ def build_action_histogram_per_chrom(
     artifact; chr 22 at 80% allele_mismatch likely means hg19/hg38
     coordinate disagreement in one source.
 
-    Returns int-keyed (chrom 1-22) dict of the same 8-key histograms.
+    Returns int-keyed (chrom 1-22) dict of the same 9-key histograms.
     Only chromosomes actually present in the alignment table appear;
     JSON consumers stringify the int keys.
     """
