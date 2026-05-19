@@ -1,4 +1,4 @@
-"""`hash` subcommand orchestrator. Sequence in LLD §4.3."""
+"""`hash` subcommand orchestrator. Sequence in"""
 
 from __future__ import annotations
 

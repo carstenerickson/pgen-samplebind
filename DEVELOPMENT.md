@@ -76,8 +76,8 @@ Most data flow between layers goes through six dataclasses:
 - **`MergeContext`** (frozen) — passed to `merge_inputs` as the fourth arg: `policy`, `sample_plan`, `report_tsv_path`, `collect_variant_rows`, `show_progress`. Bundles everything `merge_inputs` needs to do its work without knowing about the broader CLI surface.
 
 - **`MergeCounters`** (mutable) — returned by `merge_inputs` after pass 2. Carries:
-  - `action_histogram`: per-input 8-key summary — `passthrough` / `swap` / `flip` / `fill_missing` / `dropped_ambiguous_strand` / `dropped_allele_mismatch` / `pre_alignment_filter_dropped` / `drop` (the last is the residual bucket for `ON_MISSING_DROP_VARIANT` drops). All 8 keys are always present in the emitted JSON so workflow consumers can rely on the schema regardless of merge outcome — don't drop or rename a key without auditing the report-JSON consumers.
-  - `action_histogram_per_chrom`: per-chrom × 8-key breakdown (added in v0.2 for diagnostic surfacing in `--report-json`).
+  - `action_histogram`: per-input 9-key summary — `passthrough` / `swap` / `flip` / `fill_missing` / `dropped_ambiguous_strand` / `dropped_allele_mismatch` / `dropped_on_strand` / `pre_alignment_filter_dropped` / `drop`. `dropped_on_strand` is the bucket for `--on-strand drop` (non-ambiguous variants requiring flip); `drop` is the residual bucket for `ON_MISSING_DROP_VARIANT`. All 9 keys are always present in the emitted JSON so workflow consumers can rely on the schema regardless of merge outcome — don't drop or rename a key without auditing the report-JSON consumers.
+  - `action_histogram_per_chrom`: per-chrom × 9-key breakdown (added in v0.2 for diagnostic surfacing in `--report-json`).
   - `intersection_size`, `extras_count`: pass-1 alignment-table counts.
   - `per_sample_het`: a `list[tuple[str, int, int]]` of `(output_iid, het_count, called_count)` in `output_iids` order — fed to `pseudohaploid.classify_all` at step 14.
   - `n_output_samples`, `n_output_variants`: bookkeeping.

@@ -10,7 +10,7 @@ that has both `mergeit` (from AT2 distribution) and `admixtools`/`admixr`
 on PATH. Locally it auto-skips when the binaries are missing so day-to-day
 dev doesn't bog down on infrastructure that isn't there.
 
-Per LLD §6 nightly workflow + §5.5 markers.
+Per  nightly workflow + §5.5 markers.
 """
 
 from __future__ import annotations

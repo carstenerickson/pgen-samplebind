@@ -1,16 +1,26 @@
 """Smoke test for `inspect` subcommand using the synthetic panel fixture.
 
-Day 1 minimal coverage. Full HLD-test mapping comes in later passes.
+Covers PFILE (synth-default), EIGENSTRAT (converted via plink2 when
+available), and BFILE (also via plink2). The format-auto-detection
+claim in the README must hold for all three; previously only PFILE
+was exercised.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from pgen_samplebind.cli import cli
 from pgen_samplebind.types import InputDescriptor
+
+
+def _plink2_available() -> bool:
+    return shutil.which("plink2") is not None
 
 
 def test_inspect_text_smoke(synth_panel_tiny: InputDescriptor) -> None:
@@ -110,3 +120,50 @@ def test_inspect_text_includes_histogram_section(
     assert result.exit_code == 0, result.output
     assert "missingness_histogram" in result.output
     assert "0-10%" in result.output
+
+
+@pytest.mark.eigenstrat
+@pytest.mark.skipif(not _plink2_available(), reason="plink2 not on PATH")
+def test_inspect_eigenstrat_input(synth_panel_tiny: InputDescriptor, tmp_path: Path) -> None:
+    """Format auto-detect must resolve an EIGENSTRAT prefix and surface
+    `format` as eigenstrat in the inspect output."""
+    from tests.fixtures.modifiers import pfile_to_eigenstrat
+
+    eig_prefix = tmp_path / "tiny_eig"
+    pfile_to_eigenstrat(synth_panel_tiny.path, eig_prefix)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["inspect", "--json", str(eig_prefix)])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["format"] == "eigenstrat"
+    assert payload["n_samples"] == 20
+
+
+@pytest.mark.skipif(not _plink2_available(), reason="plink2 not on PATH")
+def test_inspect_bfile_input(synth_panel_tiny: InputDescriptor, tmp_path: Path) -> None:
+    """Format auto-detect must resolve a BFILE prefix (.bed/.bim/.fam) and
+    surface `format` as bfile in the inspect output."""
+    import subprocess
+
+    bfile_prefix = tmp_path / "tiny_bfile"
+    subprocess.run(
+        [
+            shutil.which("plink2"),
+            "--pfile",
+            str(synth_panel_tiny.path),
+            "--make-bed",
+            "--out",
+            str(bfile_prefix),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["inspect", "--json", str(bfile_prefix)])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["format"] == "bfile"
+    assert payload["n_samples"] == 20

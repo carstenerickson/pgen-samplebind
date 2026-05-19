@@ -1,8 +1,7 @@
 """Integration tests for --report and --report-json across merge and validate.
 
-Covers HLD test 22 (Report-JSON default vs include-rows) at the integration
-level. The summary-only-default and include-rows-opt-in contracts are pinned
-in LLD §3.11.
+Covers the Report-JSON summary-only-default vs --include-rows-opt-in
+contracts at the integration level.
 """
 
 from __future__ import annotations
@@ -57,9 +56,13 @@ class TestMergeReportTsv:
         assert result.exit_code == 0, result.output
         assert report.exists()
         lines = report.read_text().splitlines()
-        assert lines[0] == "variant_id\tchr\tpos\tinput_index\taction\treason"
-        # 50 variants x 1 non-canonical input
-        assert len(lines) == 51
+        # Schema-level check: header set + minimum cols, not exact byte string —
+        # the latter breaks on any future diagnostic column / reorder.
+        header_cols = set(lines[0].split("\t"))
+        required = {"variant_id", "chr", "pos", "input_index", "action", "reason"}
+        assert required.issubset(header_cols), f"missing report cols: {required - header_cols}"
+        # 50 variants x 1 non-canonical input + 1 header row
+        assert len(lines) - 1 == 50
 
     def test_tsv_actions_are_strings(self, two_panels: tuple[Path, Path], tmp_path: Path) -> None:
         a, b = two_panels

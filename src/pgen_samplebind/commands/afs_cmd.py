@@ -16,7 +16,7 @@ from ..formats import prepared_input
 def run_afs(
     input_path: Path,
     output_dir: Path,
-    population_column: str,
+    population_column: str | None,
     populations_filter: tuple[str, ...] | None,
     adjust_pseudohaploid: bool,
     include_sex_chrom: bool,
@@ -44,6 +44,9 @@ def run_afs(
             prepared_input(input_path, is_target=False, include_chrom=include_chrom)
         )
 
+        # compute_afs resolves --population-column via the same
+        # POP/PHENO/PHENO1 auto-detect that merge and validate use when
+        # None is passed, then reads the .psam once.
         result = compute_afs(
             descriptor=desc,
             population_column=population_column,

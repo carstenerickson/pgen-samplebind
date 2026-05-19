@@ -1,6 +1,6 @@
 """Pass 1: variant matching, allele resolution, action assignment, gate evaluation.
 
-Per LLD §3.9. The alignment table is the single source of truth for what pass 2
+Per  The alignment table is the single source of truth for what pass 2
 will do (`merge.merge_inputs`) and what reports will say (`reporting.write_report_*`).
 """
 
@@ -32,7 +32,7 @@ def resolve_alleles(
     other_alt: str,
     trust_strand: bool,
 ) -> tuple[MergeAction, DropReason | None]:
-    """Apply HLD §Allele resolution truth table for a single (canonical, other) pair.
+    """Apply  resolution truth table for a single (canonical, other) pair.
 
     Returns (action, drop_reason). drop_reason is None except when action is DROP.
 
@@ -251,13 +251,11 @@ def build_alignment_table(
     summary: AlignmentSummary,
     soften_policy_errors: bool = False,
 ) -> pd.DataFrame:
-    """Pass 1 main entry. See LLD §3.9.
-
-    Returns the alignment DataFrame with schema in LLD §2.5.
-    """
+    """Pass 1 main entry. Builds the alignment table from canonical + the
+    per-input alignment results."""
     pvar_module.validate_unique_keys(canonical_pvar, policy.variant_key)
 
-    # Initialize table from canonical (renamed `id` → `variant_id` per LLD §2.5).
+    # Initialize table from canonical (renamed `id` → `variant_id`).
     # `cm` carries genetic-position (centiMorgans) through the pipeline so
     # the output .pvar preserves it for Morgan-spaced jackknife consumers.
     cm_col = canonical_pvar["cm"] if "cm" in canonical_pvar.columns else 0.0
@@ -359,10 +357,10 @@ def _tally_actions_to_summary(
 
 
 def count_kept_variants(table: pd.DataFrame) -> int:
-    """Variants where no per-input action is DROP. Per LLD §3.9.
+    """Variants where no per-input action is DROP.
 
     Used by `merge.merge_inputs` to construct PgenWriter with the exact
-    variant_ct (HLD §Two-pass merge).
+    variant_ct.
     """
     action_cols = [c for c in table.columns if c.startswith("action_input_")]
     if not action_cols:
@@ -376,7 +374,7 @@ def count_kept_variants(table: pd.DataFrame) -> int:
 def compute_intersection_size(table: pd.DataFrame) -> int:
     """Variants where strand resolution was attempted at least once.
 
-    Gate (b)'s denominator per HLD §Exit-1 validation gates: variants where
+    Gate (b)'s denominator per -1 validation gates: variants where
     at least one input had a matched (non-FILL_MISSING) variant.
     """
     action_cols = [c for c in table.columns if c.startswith("action_input_")]
@@ -394,7 +392,7 @@ def emit_extras_warning(
     threshold_fraction: float,
     quiet: bool,
 ) -> None:
-    """Emit stderr warning when extras > threshold per HLD §Extra-variant handling."""
+    """Emit stderr warning when extras > threshold."""
     if quiet or n_canonical == 0:
         return
     if n_extras / n_canonical > threshold_fraction:
@@ -412,7 +410,7 @@ def evaluate_pass1_gates(
     policy: MergePolicy,
     is_validate_mode: bool,
 ) -> None:
-    """Evaluate pass-1-checkable Exit-1 gates per HLD §Exit-1 validation gates.
+    """Evaluate pass-1-checkable Exit-1 gates.
 
     Called from inside `merge.merge_inputs` (between pass 1 and pass 2) and
     from `validate`'s orchestrator after `build_alignment_table`.
@@ -480,10 +478,10 @@ def evaluate_pass1_gates(
 
 
 def build_action_histogram(alignment_table: pd.DataFrame) -> dict[str, int]:
-    """Build the 8-key action_histogram per LLD §2.10.
+    """Build the 9-key action_histogram
 
     Sums per-input action counts across all non-canonical inputs.
-    All 8 keys always present (zero-valued if no variants matched) so the
+    All 9 keys always present (zero-valued if no variants matched) so the
     JSON schema stays stable for workflow consumers regardless of outcome.
 
     For per-chromosome breakdown (diagnostic for chr-specific

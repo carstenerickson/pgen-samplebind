@@ -1,9 +1,9 @@
-"""Advisory output-prefix lock + filesystem warnings. Per LLD §3.7.
+"""Advisory output-prefix lock + filesystem warnings.
 
 `output_lock(prefix)` takes a non-blocking `fcntl.flock` on `{prefix}.lock`.
-Released on context exit. Used by the `merge` orchestrator (LLD §4.1 step 3)
-so two concurrent invocations writing to the same prefix can't silently
-corrupt each other's outputs.
+Released on context exit. Used by the `merge` orchestrator so two concurrent
+invocations writing to the same prefix can't silently corrupt each other's
+outputs.
 
 `detect_network_filesystem(path)` is a best-effort check warning the user when
 the lock file lives on NFS/SMB/CIFS — `fcntl.flock` over network filesystems

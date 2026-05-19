@@ -1,6 +1,6 @@
 """HLD test 9: pseudohaploid detection.
 
-Per HLD §Validation strategy / LLD §5.3:
+Per  strategy / :
 
   9. Pseudohaploid detection: synthetic panel with 50% pseudohaploid +
      50% diploid samples; output `.psam` PSEUDOHAPLOID column matches

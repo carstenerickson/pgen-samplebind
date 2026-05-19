@@ -1,10 +1,10 @@
 """Unit tests for pseudohaploid.classify cutoff boundaries.
 
-Per LLD §3.8 + HLD §Pseudohaploid detection:
+Per  +  detection:
   het_count == 0                  → PSEUDOHAPLOID
   het_rate >= 5%                  → DIPLOID
   0 < het_rate < 5%               → UNKNOWN
-  called_count == 0               → UNKNOWN  (boundary; LLD §3.8 pin)
+  called_count == 0               → UNKNOWN  (boundary;  pin)
 
 Denominator is `called_count` (non-missing autosomal calls), not total
 sites — a sample with mostly-missing calls but observable hets in the
@@ -38,7 +38,7 @@ class TestClassifyBoundaries:
 
 
 class TestClassifyZeroCalledBoundary:
-    """LLD §3.8 pin: called_count == 0 → UNKNOWN (no signal; honest answer)."""
+    """pin: called_count == 0 → UNKNOWN (no signal; honest answer)."""
 
     def test_zero_called_returns_unknown(self) -> None:
         assert classify(0, 0) == P.UNKNOWN
@@ -67,7 +67,7 @@ class TestClassifyAllVectorized:
 
 class TestUpdateBlockChromosomeFilter:
     """update_block is no-op for non-autosomal blocks (chrom > 22), per the
-    HLD §Pseudohaploid detection autosome-only spec and LLD §3.8 pin that
+     detection autosome-only spec and  pin that
     blocks don't span chromosomes (caller-supplies-chromosome contract)."""
 
     def test_autosome_block_updates_counters(self) -> None:

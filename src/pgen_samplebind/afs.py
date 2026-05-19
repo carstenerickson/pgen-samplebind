@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from .errors import InvariantViolation, IOFailure
-from .psam import read_psam
+from .psam import detect_population_column, read_psam
 from .pseudohaploid import read_sidecar
 from .pvar import read_pvar
 from .types import InputDescriptor, PseudohaploidStatus
@@ -55,7 +55,7 @@ class AfsResult:
 
 def compute_afs(
     descriptor: InputDescriptor,
-    population_column: str = "POP",
+    population_column: str | None = None,
     populations: list[str] | None = None,
     adjust_pseudohaploid: bool = True,
     include_chrom: tuple[int, ...] = tuple(range(1, 23)),
@@ -65,8 +65,10 @@ def compute_afs(
 
     Args:
         descriptor: PFILE input (call `prepared_input` for non-PFILE formats).
-        population_column: column in `.psam` to aggregate by. Defaults "POP";
-            tool's standard layout has FID=POP set by `add_fid_from_pop`.
+        population_column: column in `.psam` to aggregate by. None (default)
+            auto-detects via the POP/PHENO/PHENO1 fallback, matching merge
+            and validate. The tool's own output has FID=POP set by
+            `add_fid_from_pop`, so POP resolves first on round-trip inputs.
         populations: optional subset of population labels to include. None
             means use every population found in `population_column`.
         adjust_pseudohaploid: if True and `.psam` has a PSEUDOHAPLOID column,
@@ -76,7 +78,7 @@ def compute_afs(
             dropped at parse time (matches the pipeline's autosome-only
             convention).
         block_size: PgenReader block size for genotype streaming. Default
-            2048 matches the merge pipeline (LLD §3.10 calibrated).
+            2048 matches the merge pipeline ( calibrated).
 
     Returns:
         AfsResult with three data frames sized
@@ -91,13 +93,8 @@ def compute_afs(
 
     # 1. Read samples + population assignment.
     psam = read_psam(descriptor.psam_path)
-    if population_column not in psam.columns:
-        raise InvariantViolation(
-            f"--population-column {population_column!r} not in {descriptor.psam_path}: "
-            f"available columns {list(psam.columns)}"
-        )
-
-    pop_per_sample = psam[population_column].astype(str).to_numpy()
+    resolved_pop_column = detect_population_column(psam, population_column)
+    pop_per_sample = psam[resolved_pop_column].astype(str).to_numpy()
     n_samples = len(psam)
 
     # Pseudohaploid mask (1 if pseudohaploid, 0 otherwise). Adjust math

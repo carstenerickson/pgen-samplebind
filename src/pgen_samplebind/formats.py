@@ -1,7 +1,4 @@
 """Format detection, EIGENSTRAT/BFILE pre-conversion, tempdir lifecycle.
-
-Per LLD §3.3.
-
 EIGENSTRAT inputs in two flavors:
 - PACKEDANCESTRYMAP (binary, `GENO `/`TGENO ` header): converted to PFILE via
   plink2 `--eigfile --make-pgen` shell-out.
@@ -73,7 +70,7 @@ def _resolve_pvar_path(base: Path) -> Path | None:
 
 
 def detect_format(prefix: Path) -> InputFormat:
-    """Infer format from companion-file presence per HLD §Format detection.
+    """Infer format from companion-file presence.
 
     Tries PFILE first (.pgen/.pvar/.psam triplet), then BFILE (.bed/.bim/.fam),
     then EIGENSTRAT (.geno/.snp/.ind).
@@ -181,7 +178,7 @@ def _run_plink2_convert(
 ) -> None:
     """Shell out to plink2 to convert BFILE/EIGENSTRAT → PFILE at out_prefix.
 
-    Per LLD §3.3 subprocess hardening pin: shell=False, list args,
+    Per  subprocess hardening pin: shell=False, list args,
     check=False (we capture stderr ourselves), capture_output=True.
 
     Raises:
@@ -390,6 +387,7 @@ def _convert_ascii_eigenstrat(
         )
     except Exception as e:
         raise IOFailure(f"cannot open PgenWriter for {out_pgen}: {e}") from e
+    append_failed = False
     try:
         # PgenWriter.append_biallelic_batch takes (block_size, n_samples) int8.
         # Stream in 1024-variant blocks to amortize the call overhead.
@@ -398,8 +396,19 @@ def _convert_ascii_eigenstrat(
             end = min(start + block, n_variants)
             chunk = np.ascontiguousarray(matrix_kept[start:end], dtype=np.int8)
             writer.append_biallelic_batch(chunk)
+    except Exception:
+        append_failed = True
+        raise
     finally:
-        writer.close()
+        # PgenWriter.close() raises RuntimeError if the variant_ct it was
+        # opened with doesn't match the count appended. On the happy path
+        # we want that raise; on the unhappy path it would mask the real
+        # append-time exception, so swallow it.
+        try:
+            writer.close()
+        except Exception:
+            if not append_failed:
+                raise
 
 
 @contextmanager
@@ -416,14 +425,14 @@ def prepared_input(
     (success OR failure) — `TemporaryDirectory.__exit__` runs even on
     uncaught exceptions, so partial-conversion artifacts never leak.
 
-    Per HLD §EIGENSTRAT a7.x quirks: plink2 v2.0.0-a.7.x's
+    Per  a7.x quirks: plink2 v2.0.0-a.7.x's
     `--eigfile --make-pgen` preserves the population label as `PHENO1`
     (not stripped), emits no FID column, and doesn't need the
     .ind-re-read awk dance. The orchestrator's existing detect_population_column
     + rename_to_pop + add_fid_from_pop flow handles `PHENO1 → POP` and
     `FID = POP` post-conversion (no special path needed here).
 
-    Per HLD §Format detection: `--chr 1-22 --allow-extra-chr` is the
+    Per  detection: `--chr 1-22 --allow-extra-chr` is the
     default chrom filter (autosomes); override via `include_chrom` for
     workflows that need sex chromosomes.
 

@@ -1,10 +1,11 @@
 """.pvar parsing, biallelic-SNP filter, multi-allelic startup check, chromosome normalization.
 
-Per LLD §3.4. Pandas-driven for the speed and memory wins documented in the pgenlib-verify-report.
+Per  Pandas-driven for the speed and memory wins documented in the pgenlib-verify-report.
 """
 
 from __future__ import annotations
 
+import contextlib
 import io
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -61,7 +62,7 @@ _CHROM_LETTER_MAP: dict[str, int] = {"X": 23, "Y": 24, "MT": 26, "M": 26}
 
 
 def normalize_chrom(s: str | int) -> int:
-    """Chromosome string → int per HLD §Variant alignment.
+    """Chromosome string → int.
 
     1-22 numeric, X/chrX/23 → 23, Y/chrY/24 → 24, MT/chrMT/chrM/26 → 26.
     `chr` prefix stripped if present.
@@ -237,7 +238,7 @@ def read_pvar(path: Path) -> pd.DataFrame:
 
 
 def validate_unique_keys(df: pd.DataFrame, key: str) -> None:
-    """Assert no duplicate keys in canonical input. Per LLD §3.4 / HLD §Variant alignment.
+    """Assert no duplicate keys in canonical input. Per  /  alignment.
 
     Called only for input[0] before alignment. Catches the corner where input[0] was
     itself produced by a buggy merge or malformed source file.
@@ -272,15 +273,15 @@ def validate_unique_keys(df: pd.DataFrame, key: str) -> None:
         first_dup_key = str(first_dup_row["id"])
     raise InvariantViolation(
         f"duplicate canonical {col_label} key: {first_dup_key!r}. Input[0] must have unique "
-        f"variant keys (HLD §Variant alignment)."
+        f"variant keys."
     )
 
 
 def check_max_alleles(pgen_path: Path) -> None:
     """Open .pgen via pgenlib.PvarReader and assert get_max_allele_ct() == 2.
 
-    Per HLD §Non-SNP handling: multi-allelic input causes uncatchable C-layer
-    SIGSEGV in PgenReader.read_range, so we must reject at startup.
+    Multi-allelic input causes uncatchable C-layer SIGSEGV in
+    PgenReader.read_range, so we must reject at startup.
 
     Raises:
         InvariantViolation: max_allele_ct > 2.
@@ -302,8 +303,16 @@ def check_max_alleles(pgen_path: Path) -> None:
     try:
         max_alleles = pv.get_max_allele_ct()
     finally:
-        # pgenlib readers don't always have an explicit close; rely on GC.
-        pass
+        # PvarReader holds C-allocated state; release it deterministically
+        # rather than relying on Python GC. Older pgenlib versions don't
+        # expose .close(), so del-the-reference is the portable form.
+        # Swallow exceptions from close() itself — if it raises, the `del`
+        # below still needs to run to drop the C-state reference.
+        close = getattr(pv, "close", None)
+        if callable(close):
+            with contextlib.suppress(Exception):
+                close()
+        del pv
     if max_alleles > 2:
         raise InvariantViolation(
             f"{pgen_path} contains multi-allelic variants (max_allele_ct={max_alleles}); "

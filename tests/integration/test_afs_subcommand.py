@@ -12,7 +12,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pgenlib
 import pytest
 from click.testing import CliRunner
 
@@ -20,19 +19,8 @@ from pgen_samplebind.afs import compute_afs
 from pgen_samplebind.cli import cli
 from pgen_samplebind.errors import InvariantViolation
 from pgen_samplebind.formats import prepared_input
+from tests.fixtures.helpers import read_pgen_full as _read_pgen_full
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
-
-
-def _read_pgen_full(prefix: Path, n_samples: int, n_variants: int) -> np.ndarray:
-    """Read the entire .pgen into (n_variants, n_samples) int8."""
-    pgen_path = Path(str(prefix) + ".pgen")
-    reader = pgenlib.PgenReader(str(pgen_path).encode(), raw_sample_ct=n_samples)
-    try:
-        buf = np.empty((n_variants, n_samples), dtype=np.int8)
-        reader.read_range(0, n_variants, buf)
-    finally:
-        reader.close()
-    return buf
 
 
 class TestAfsAggregationCorrectness:
@@ -240,6 +228,12 @@ class TestAfsPopulationSubset:
             )
 
     def test_missing_population_column_raises(self, tmp_path: Path) -> None:
+        """A typoed `--population-column` is a user error (UsageError),
+        distinguished from `.psam` genuinely lacking any pop column
+        (InvariantViolation). compute_afs now routes through
+        detect_population_column which makes that distinction."""
+        from pgen_samplebind.errors import UsageError
+
         spec = SyntheticPanelSpec(
             n_samples=4,
             n_variants=3,
@@ -251,7 +245,7 @@ class TestAfsPopulationSubset:
         desc = synthesize_pfile(spec, tmp_path / "panel")
         with (
             prepared_input(desc.path, include_chrom=tuple(range(1, 23))) as pdesc,
-            pytest.raises(InvariantViolation, match="not in"),
+            pytest.raises(UsageError, match=r"not present"),
         ):
             compute_afs(
                 descriptor=pdesc,
@@ -373,3 +367,61 @@ class TestAfsSubcommandEndToEnd:
 
         freq = pd.read_csv(out_dir / "afs_freq.tsv", sep="\t")
         assert [c for c in freq.columns if c != "variant_id"] == ["pop_00", "pop_02"]
+
+
+class TestAfsIncludeSexChrom:
+    """The `--include-sex-chrom` flag is the only sex-chromosome code path
+    in the tool. Without it, autosomes (1-22) only; with it, X/Y/XY/MT
+    (23-26) are included alongside. Previously untested at integration
+    level despite being the documented option."""
+
+    def test_autosomes_only_excludes_chr23(self, tmp_path: Path) -> None:
+        spec = SyntheticPanelSpec(
+            n_samples=6,
+            n_variants=12,
+            n_populations=2,
+            pseudohaploid_fraction=0.0,
+            ambiguous_strand_fraction=0.0,
+            missing_rate=0.0,
+            chromosomes=(1, 2, 23),  # mix autosomes + X
+            variant_seed=991,
+            sample_seed=992,
+        )
+        desc = synthesize_pfile(spec, tmp_path / "panel")
+        out_dir = tmp_path / "afs_out"
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["afs", str(desc.path), "-o", str(out_dir), "--quiet"])
+        assert result.exit_code == 0, result.output
+
+        snp = pd.read_csv(out_dir / "afs_snp.tsv", sep="\t")
+        # chrom 23 dropped → only autosomes remain
+        assert set(snp["chrom"].astype(int)) <= {1, 2}
+        assert 23 not in set(snp["chrom"].astype(int))
+
+    def test_include_sex_chrom_admits_chr23(self, tmp_path: Path) -> None:
+        spec = SyntheticPanelSpec(
+            n_samples=6,
+            n_variants=12,
+            n_populations=2,
+            pseudohaploid_fraction=0.0,
+            ambiguous_strand_fraction=0.0,
+            missing_rate=0.0,
+            chromosomes=(1, 2, 23),
+            variant_seed=991,
+            sample_seed=992,
+        )
+        desc = synthesize_pfile(spec, tmp_path / "panel")
+        out_dir = tmp_path / "afs_out"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["afs", str(desc.path), "-o", str(out_dir), "--include-sex-chrom", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+
+        snp = pd.read_csv(out_dir / "afs_snp.tsv", sep="\t")
+        # chrom 23 retained when sex chroms included
+        chrom_set = set(snp["chrom"].astype(int))
+        assert 23 in chrom_set

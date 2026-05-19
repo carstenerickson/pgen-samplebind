@@ -1,4 +1,4 @@
-"""Unit tests for alignment.evaluate_pass1_gates — HLD §Exit-1 validation gates."""
+"""Unit tests for alignment.evaluate_pass1_gates — -1 validation gates."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ class TestGateBAmbiguousStrandThreshold:
     def test_intersection_denominator_catches_wrong_panel(
         self, policy: MergePolicy, summary: AlignmentSummary
     ) -> None:
-        """HLD §Exit-1 validation gates (b) wrong-panel scenario.
+        """-1 validation gates (b) wrong-panel scenario.
 
         Small intersection x high ambiguous-drop rate = small canonical fraction.
         Intersection denominator should fire; canonical denominator wouldn't.

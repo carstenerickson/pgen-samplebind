@@ -1,6 +1,6 @@
 """HLD test 13 (target+EIGENSTRAT compose) + gate (c) target call-rate tests.
 
-Per HLD §Validation strategy / §Target mode:
+Per  strategy / §Target mode:
 - Test 13: --target user.eig + EIGENSTRAT panel positional; output AT2 f2
   matches mergeit reference within max_dev < 1e-9. (The AT2 f2 comparison
   requires AT2/mergeit binaries; only the end-to-end-runs-cleanly portion
@@ -16,24 +16,18 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import pandas as pd
 import pytest
 from click.testing import CliRunner
 
 from pgen_samplebind.cli import cli
 from pgen_samplebind.errors import ValidationError
 from tests.fixtures import modifiers
+from tests.fixtures.helpers import read_psam_iids
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
 
 
 def _plink2_available() -> bool:
     return shutil.which("plink2") is not None
-
-
-def _read_psam_iids(prefix: Path) -> list[str]:
-    df = pd.read_csv(Path(str(prefix) + ".psam"), sep="\t")
-    iid_col = next(c for c in df.columns if c.lstrip("#") == "IID")
-    return df[iid_col].tolist()
 
 
 # ---------- HLD test 13 (basic target + EIGENSTRAT compose) ------------------
@@ -99,7 +93,7 @@ class TestHld13TargetEigfileCompose:
         assert result.exit_code == 0, result.output
 
         # Output has 6 panel samples + 1 target sample = 7
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         assert len(iids) == 7
         # Target sample appears (no collision since prefixes differ → keeps T00000)
         assert "T00000" in iids
@@ -157,7 +151,7 @@ class TestHld13TargetEigfileCompose:
         )
         assert result.exit_code == 0, result.output
 
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # 4 panel + 1 target = 5; target's colliding X00000 → X00000_target
         assert len(iids) == 5
         assert "X00000_target" in iids
@@ -167,7 +161,7 @@ class TestHld13TargetEigfileCompose:
 
 
 class TestGateCTargetCallRate:
-    """Gate (c) per HLD §Exit-1 validation gates (c) and §Target mode:
+    """Gate (c) per -1 validation gates (c) and §Target mode:
     target call rate below --target-min-call-rate exits 1.
 
     Synthesizer's `missing_rate` parameter controls per-genotype missingness.
@@ -269,7 +263,7 @@ class TestGateCTargetCallRate:
         assert result.exit_code == 0, result.output
 
     def test_gate_c_failure_unlinks_output_triplet(self, tmp_path: Path) -> None:
-        """LLD §4.1 fix #6 + §3.10 LLD pin: when gate (c) fires post-pass-2,
+        """fix #6 + §3.10 LLD pin: when gate (c) fires post-pass-2,
         the output cleanup wrapper unlinks the .pgen/.pvar/.psam triplet so
         the user doesn't see a half-built panel that's actually invalid."""
         synthesize_pfile(
@@ -389,7 +383,7 @@ class TestMultiTarget:
             ],
         )
         assert result.exit_code == 0, result.output
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # 4 panel + 2 targets = 6; targets keep their prefix-distinct IIDs.
         assert len(iids) == 6
         assert "T000000" in iids  # target 0's sole sample
@@ -417,7 +411,7 @@ class TestMultiTarget:
             ],
         )
         assert result.exit_code == 0, result.output
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         assert "P00000_target" in iids
         # Sanity: no `_target_4` (input_idx-based suffix) since we're single-target.
         assert not any(iid.endswith("_target_4") for iid in iids), iids
@@ -447,7 +441,7 @@ class TestMultiTarget:
             ],
         )
         assert result.exit_code == 0, result.output
-        iids = _read_psam_iids(out)
+        iids = read_psam_iids(out)
         # Panel = input_idx 0 (canonical, no suffix). Targets are input_idx 1 and 2.
         assert "P00000_target_1" in iids, iids
         assert "P00000_target_2" in iids, iids

@@ -206,7 +206,7 @@ class TestBuildActionHistogram:
     def test_drop_residual_for_on_missing_drop_variant(
         self, policy: MergePolicy, summary: AlignmentSummary
     ) -> None:
-        """The bare 'drop' key is ON_MISSING_DROP_VARIANT residual per LLD §2.10."""
+        """The bare 'drop' key is ON_MISSING_DROP_VARIANT residual"""
         canonical = _pvar_df([1, 1], [100, 200], ["a", "b"], ["A", "C"], ["G", "T"])
         other = _pvar_df([1], [100], ["a"], ["A"], ["G"])
         modified = replace(policy, on_missing="drop_variant")

@@ -1,9 +1,9 @@
 """Unit tests for psam.detect_population_column / rename_to_pop / add_fid_from_pop.
 
-Per HLD §Population labels: auto-detect tries POP, then PHENO, then PHENO1
-in that order. plink2's --eigfile writes PHENO1 (after our PHENO1 → POP
-rename in the orchestrator); modern hand-built psam files use POP;
-legacy plink1.9-converted files use PHENO. Override with --population-column NAME.
+Population-label auto-detect tries POP, then PHENO, then PHENO1 in that
+order. plink2's --eigfile writes PHENO1 (after our PHENO1 → POP rename
+in the orchestrator); modern hand-built psam files use POP; legacy
+plink1.9-converted files use PHENO. Override with --population-column NAME.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pgen_samplebind.psam import (
 
 
 class TestDetectPopulationColumnFallbackOrder:
-    """POP > PHENO > PHENO1 priority per HLD §Population labels."""
+    """POP > PHENO > PHENO1 priority."""
 
     def test_pop_takes_precedence_over_pheno(self) -> None:
         df = pd.DataFrame({"IID": ["a"], "POP": ["x"], "PHENO": ["y"]})
@@ -150,6 +150,21 @@ class TestRenameToPop:
         with pytest.raises(InvariantViolation, match="2 'POP' columns"):
             rename_to_pop(df, source_col="IID")
 
+    def test_rebind_with_nan_in_pop_raises_with_clear_diagnostic(self) -> None:
+        """NaN in either candidate column breaks the equality short-circuit
+        (str(nan) compares equal across columns coincidentally). Surface
+        the real cause instead of a misleading 'distinct POP' error.
+        """
+        df = pd.DataFrame(
+            {
+                "FID": ["pop_a", "pop_b"],
+                "IID": ["s1", "s2"],
+                "POP": ["pop_a", None],
+            }
+        )
+        with pytest.raises(UsageError, match="missing values"):
+            rename_to_pop(df, source_col="FID")
+
 
 class TestAddFidFromPop:
     def test_fid_equals_pop(self) -> None:
@@ -160,7 +175,7 @@ class TestAddFidFromPop:
 
     def test_fid_overwrites_existing(self) -> None:
         """When .fam-derived input has FID already, add_fid_from_pop
-        overwrites with POP per HLD §Output PFILE (AT2 keys on FID)."""
+        overwrites with POP for AT2's FID-keyed extract_f2."""
         df = pd.DataFrame({"FID": ["old"], "IID": ["a"], "POP": ["new"]})
         out = add_fid_from_pop(df)
         assert out["FID"].tolist() == ["new"]

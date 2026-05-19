@@ -1,8 +1,7 @@
-"""`validate` subcommand orchestrator. Sequence in LLD §4.2.
+"""`validate` subcommand orchestrator.
 
 Validate runs pass 1 only — no genotype reads, no .pgen output. Same
-Exit-1 gates as merge (HLD §Exit-1 validation gates), but --on-* error
-policies are softened to gate (d) per HLD §Exit-1 validation gates (d).
+Exit-1 gates as merge, but --on-* error policies are softened to gate (d).
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ def run_validate(
     relabel_input_col: str | None = None,
     relabel_output_col: str | None = None,
 ) -> None:
-    """Validate subcommand orchestrator. Per LLD §4.2."""
+    """Validate subcommand orchestrator."""
     started = time.perf_counter()
 
     with ExitStack() as stack:
@@ -75,7 +74,7 @@ def run_validate(
                 df = psam.rename_to_pop(df, pop_col)
             psam_dfs.append(df)
 
-        # --relabel-from per-input (HLD §Relabeling) — same logic as merge.
+        # --relabel-from per-input — same logic as merge.
         if relabel_from is not None:
             relabel_df = psam.read_relabel_tsv(relabel_from, relabel_input_col, relabel_output_col)
             source_col = "POP" if relabel_input_col is None else policy.id_column
