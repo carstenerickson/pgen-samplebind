@@ -115,9 +115,7 @@ def test_row_order_invariant_fires_under_python_o(tmp_path: Path) -> None:
         timeout=60,
     )
     assert result.returncode == 0, (
-        f"subprocess exit={result.returncode}\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
+        f"subprocess exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "OK" in result.stdout
 
@@ -128,6 +126,7 @@ def test_assertion_helper_is_available() -> None:
     the source still imports; this is a sanity stub paired with the
     -O subprocess test above."""
     from pgen_samplebind.commands import merge_cmd  # noqa: F401
+
     # No-op assertion — the import is the test.
     assert True
 

@@ -183,7 +183,7 @@ class TestMergePsamStructure:
         assert cols[:5] == ["FID", "IID", "SEX", "POP", "PSEUDOHAPLOID"]
 
     def test_fid_equals_pop(self, panel_a: Path, panel_b: Path, tmp_path: Path) -> None:
-        """ PFILE: FID populated equal to POP for AT2 compatibility."""
+        """PFILE: FID populated equal to POP for AT2 compatibility."""
         out = tmp_path / "merged"
         runner = CliRunner()
         runner.invoke(cli, ["merge", str(panel_a), str(panel_b), "-o", str(out), "--quiet"])

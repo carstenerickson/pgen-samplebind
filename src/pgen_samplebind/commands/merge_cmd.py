@@ -1,4 +1,4 @@
-"""`merge` subcommand orchestrator. Sequence in """
+"""`merge` subcommand orchestrator. Sequence in"""
 
 from __future__ import annotations
 

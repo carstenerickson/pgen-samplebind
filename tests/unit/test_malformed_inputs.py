@@ -87,12 +87,7 @@ class TestMalformedPsam:
     def test_metadata_then_header_tolerated(self, tmp_path: Path) -> None:
         """Multiple `##` lines before the header should be skipped."""
         p = tmp_path / "with_metadata.psam"
-        p.write_text(
-            "##fileformat=PSAMv1.0\n"
-            "##source=plink2\n"
-            "#IID\tSEX\tPOP\n"
-            "S1\t1\tPOP1\n"
-        )
+        p.write_text("##fileformat=PSAMv1.0\n##source=plink2\n#IID\tSEX\tPOP\nS1\t1\tPOP1\n")
         df = read_psam(p)
         assert len(df) == 1
         assert df["IID"].tolist() == ["S1"]

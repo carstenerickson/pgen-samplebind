@@ -38,7 +38,7 @@ class TestClassifyBoundaries:
 
 
 class TestClassifyZeroCalledBoundary:
-    """ pin: called_count == 0 → UNKNOWN (no signal; honest answer)."""
+    """pin: called_count == 0 → UNKNOWN (no signal; honest answer)."""
 
     def test_zero_called_returns_unknown(self) -> None:
         assert classify(0, 0) == P.UNKNOWN

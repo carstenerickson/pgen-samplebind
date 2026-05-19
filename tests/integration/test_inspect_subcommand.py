@@ -124,9 +124,7 @@ def test_inspect_text_includes_histogram_section(
 
 @pytest.mark.eigenstrat
 @pytest.mark.skipif(not _plink2_available(), reason="plink2 not on PATH")
-def test_inspect_eigenstrat_input(
-    synth_panel_tiny: InputDescriptor, tmp_path: Path
-) -> None:
+def test_inspect_eigenstrat_input(synth_panel_tiny: InputDescriptor, tmp_path: Path) -> None:
     """Format auto-detect must resolve an EIGENSTRAT prefix and surface
     `format` as eigenstrat in the inspect output."""
     from tests.fixtures.modifiers import pfile_to_eigenstrat

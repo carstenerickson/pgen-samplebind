@@ -257,7 +257,7 @@ def apply_relabel(
 ) -> pd.DataFrame:
     """Map each sample's source_column value through the relabel; if found,
     set target_column to the relabel's output value. Otherwise leave
-    target_column as-is. Per .
+    target_column as-is.
 
     For 2-col relabel: source_column = "POP" (rows are POP→POP, collapse
     populations across inputs).

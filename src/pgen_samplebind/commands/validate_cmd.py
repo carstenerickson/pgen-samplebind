@@ -36,7 +36,7 @@ def run_validate(
     relabel_input_col: str | None = None,
     relabel_output_col: str | None = None,
 ) -> None:
-    """Validate subcommand orchestrator. Per """
+    """Validate subcommand orchestrator."""
     started = time.perf_counter()
 
     with ExitStack() as stack:

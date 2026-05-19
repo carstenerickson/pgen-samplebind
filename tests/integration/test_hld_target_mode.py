@@ -263,7 +263,7 @@ class TestGateCTargetCallRate:
         assert result.exit_code == 0, result.output
 
     def test_gate_c_failure_unlinks_output_triplet(self, tmp_path: Path) -> None:
-        """ fix #6 + §3.10 LLD pin: when gate (c) fires post-pass-2,
+        """fix #6 + §3.10 LLD pin: when gate (c) fires post-pass-2,
         the output cleanup wrapper unlinks the .pgen/.pvar/.psam triplet so
         the user doesn't see a half-built panel that's actually invalid."""
         synthesize_pfile(

@@ -391,9 +391,7 @@ class TestAfsIncludeSexChrom:
         out_dir = tmp_path / "afs_out"
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["afs", str(desc.path), "-o", str(out_dir), "--quiet"]
-        )
+        result = runner.invoke(cli, ["afs", str(desc.path), "-o", str(out_dir), "--quiet"])
         assert result.exit_code == 0, result.output
 
         snp = pd.read_csv(out_dir / "afs_snp.tsv", sep="\t")
