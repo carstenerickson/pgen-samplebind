@@ -24,7 +24,7 @@ from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
 
 @pytest.fixture
 def tiny_panel_a(tmp_path: Path) -> Path:
-    """1 variant × 4 samples — smallest input that exercises pass-2."""
+    """1 variant x 4 samples — smallest input that exercises pass-2."""
     spec = SyntheticPanelSpec(
         n_samples=4,
         n_variants=1,
@@ -39,7 +39,7 @@ def tiny_panel_a(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tiny_panel_b(tmp_path: Path) -> Path:
-    """1 variant × 4 samples; disjoint sample IDs from tiny_panel_a."""
+    """1 variant x 4 samples; disjoint sample IDs from tiny_panel_a."""
     spec = SyntheticPanelSpec(
         n_samples=4,
         n_variants=1,
@@ -54,7 +54,7 @@ def tiny_panel_b(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def single_sample_panel(tmp_path: Path) -> Path:
-    """1 sample × 20 variants — the canonical 'single-sample target' shape
+    """1 sample x 20 variants — the canonical 'single-sample target' shape
     described in the README's canonical use case 2."""
     spec = SyntheticPanelSpec(
         n_samples=1,

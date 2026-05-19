@@ -1,8 +1,7 @@
-"""`validate` subcommand orchestrator. Sequence in 
+"""`validate` subcommand orchestrator.
 
 Validate runs pass 1 only — no genotype reads, no .pgen output. Same
-Exit-1 gates as merge, but --on-* error
-policies are softened to gate (d) per -1 validation gates (d).
+Exit-1 gates as merge, but --on-* error policies are softened to gate (d).
 """
 
 from __future__ import annotations

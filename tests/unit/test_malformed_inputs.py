@@ -24,14 +24,14 @@ class TestMalformedPvar:
         triggers the no-header diagnostic."""
         p = tmp_path / "bad.pvar"
         p.write_text("1\t1000\trs1\tA\tC\n2\t2000\trs2\tG\tT\n")
-        with pytest.raises(IOFailure, match="no #CHROM header"):
+        with pytest.raises(IOFailure, match=r"no #CHROM header"):
             read_pvar(p)
 
     def test_missing_required_column_raises_iofailure(self, tmp_path: Path) -> None:
         """Header present but missing one of the required columns (REF here)."""
         p = tmp_path / "no_ref.pvar"
         p.write_text("#CHROM\tPOS\tID\tALT\n1\t1000\trs1\tC\n")
-        with pytest.raises(IOFailure, match="missing required columns.*REF"):
+        with pytest.raises(IOFailure, match=r"missing required columns.*REF"):
             read_pvar(p)
 
     def test_extra_metadata_lines_tolerated(self, tmp_path: Path) -> None:
@@ -73,7 +73,7 @@ class TestMalformedPsam:
         diagnostic that names the expected form."""
         p = tmp_path / "no_header.psam"
         p.write_text("S1\t1\tPOP1\nS2\t2\tPOP2\n")
-        with pytest.raises(IOFailure, match="no `#`-prefixed header"):
+        with pytest.raises(IOFailure, match=r"no `#`-prefixed header"):
             read_psam(p)
 
     def test_metadata_only_file_raises_iofailure(self, tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ class TestMalformedPsam:
         rejected. Reachable on an empty-after-comments edge case."""
         p = tmp_path / "metadata_only.psam"
         p.write_text("##fileformat=PSAMv1.0\n##created=2026-05-18\n")
-        with pytest.raises(IOFailure, match="no `#`-prefixed header"):
+        with pytest.raises(IOFailure, match=r"no `#`-prefixed header"):
             read_psam(p)
 
     def test_metadata_then_header_tolerated(self, tmp_path: Path) -> None:

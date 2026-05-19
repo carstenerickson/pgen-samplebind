@@ -5,6 +5,7 @@ Per  Pandas-driven for the speed and memory wins documented in the pgenlib-verif
 
 from __future__ import annotations
 
+import contextlib
 import io
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -305,9 +306,12 @@ def check_max_alleles(pgen_path: Path) -> None:
         # PvarReader holds C-allocated state; release it deterministically
         # rather than relying on Python GC. Older pgenlib versions don't
         # expose .close(), so del-the-reference is the portable form.
+        # Swallow exceptions from close() itself — if it raises, the `del`
+        # below still needs to run to drop the C-state reference.
         close = getattr(pv, "close", None)
         if callable(close):
-            close()
+            with contextlib.suppress(Exception):
+                close()
         del pv
     if max_alleles > 2:
         raise InvariantViolation(

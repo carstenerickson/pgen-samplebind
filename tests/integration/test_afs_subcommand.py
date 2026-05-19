@@ -228,6 +228,12 @@ class TestAfsPopulationSubset:
             )
 
     def test_missing_population_column_raises(self, tmp_path: Path) -> None:
+        """A typoed `--population-column` is a user error (UsageError),
+        distinguished from `.psam` genuinely lacking any pop column
+        (InvariantViolation). compute_afs now routes through
+        detect_population_column which makes that distinction."""
+        from pgen_samplebind.errors import UsageError
+
         spec = SyntheticPanelSpec(
             n_samples=4,
             n_variants=3,
@@ -239,7 +245,7 @@ class TestAfsPopulationSubset:
         desc = synthesize_pfile(spec, tmp_path / "panel")
         with (
             prepared_input(desc.path, include_chrom=tuple(range(1, 23))) as pdesc,
-            pytest.raises(InvariantViolation, match="not in"),
+            pytest.raises(UsageError, match=r"not present"),
         ):
             compute_afs(
                 descriptor=pdesc,

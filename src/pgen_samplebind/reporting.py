@@ -267,7 +267,7 @@ def write_report_json(
     mode: str = "merge",
     tool_version: str = "",
 ) -> None:
-    """Run-level JSON report per  + 
+    """Run-level JSON report.
 
     Default (include_rows=False): summary-only (~few KB). Workflow-friendly.
     include_rows=True: adds `variants` array from `counters.variant_rows`;

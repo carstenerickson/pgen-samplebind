@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`hash` canonical sort key now includes REF/ALT** (was `[chrom, pos]` only). Same `(chrom, pos)` rows from two different on-disk orderings used to land in input order after the stable mergesort, producing different hashes — defeating the cross-format invariance the hash is meant to guarantee whenever a panel happened to carry duplicate `(chrom, pos)` rows (e.g., a tri-allelic site stored as two biallelic rows). **Behavior change worth flagging for upgraders:** for panels with at least one duplicate `(chrom, pos)`, the SHA-256 emitted by `pgen-samplebind hash` may differ from a pre-Unreleased version's output. Panels with unique `(chrom, pos)` (the typical case after `pvar.validate_unique_keys` runs upstream in the merge path) are unaffected. If you've stashed pre-Unreleased hashes for identity verification, re-hash the canonical input under the new version.
+
 ## [0.3.2] - 2026-05-18
 
 ### Fixed

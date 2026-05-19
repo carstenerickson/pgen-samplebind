@@ -25,7 +25,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 from click.testing import CliRunner
 
@@ -34,7 +33,6 @@ from tests.fixtures import modifiers
 from tests.fixtures.helpers import read_pgen_full as _read_pgen
 from tests.fixtures.helpers import read_psam_iids, read_pvar_keys
 from tests.fixtures.synthesize import SyntheticPanelSpec, synthesize_pfile
-
 
 # ---------- HLD test 1: round-trip identity ----------------------------------
 

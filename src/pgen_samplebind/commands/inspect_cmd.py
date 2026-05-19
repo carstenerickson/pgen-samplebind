@@ -1,4 +1,4 @@
-"""`inspect` subcommand orchestrator. Sequence in 
+"""`inspect` subcommand orchestrator.
 
 Emits format / sample count / variant count / populations / sex distribution
 / per-sample missingness histogram via PgenReader iteration.

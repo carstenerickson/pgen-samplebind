@@ -11,7 +11,6 @@ from pathlib import Path
 from .. import __version__
 from ..afs import compute_afs, write_afs_tsvs
 from ..formats import prepared_input
-from ..psam import detect_population_column, read_psam
 
 
 def run_afs(
@@ -45,16 +44,12 @@ def run_afs(
             prepared_input(input_path, is_target=False, include_chrom=include_chrom)
         )
 
-        # Match merge/validate's auto-detect semantics: pop column resolves
-        # via POP/PHENO/PHENO1 fallback when not given explicitly. afs
-        # previously hard-defaulted to "POP" and errored on EIGENSTRAT-
-        # converted inputs that surface as PHENO1.
-        psam_df = read_psam(desc.psam_path)
-        resolved_pop_column = detect_population_column(psam_df, population_column)
-
+        # compute_afs resolves --population-column via the same
+        # POP/PHENO/PHENO1 auto-detect that merge and validate use when
+        # None is passed, then reads the .psam once.
         result = compute_afs(
             descriptor=desc,
-            population_column=resolved_pop_column,
+            population_column=population_column,
             populations=list(populations_filter) if populations_filter else None,
             adjust_pseudohaploid=adjust_pseudohaploid,
             include_chrom=include_chrom,

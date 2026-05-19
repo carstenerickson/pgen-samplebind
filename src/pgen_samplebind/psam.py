@@ -294,7 +294,6 @@ def resolve_sample_identity(
     target_idxs: tuple[int, ...] = (),
 ) -> SampleIdentityPlan:
     """Compute the SampleIdentityPlan from input psams + --on-collision policy.
-    Per  collision handling (v3.5) and 
 
     `target_idxs` is the (possibly empty) tuple of input indexes marked as
     targets via --target. Zero or one target: target collision suffix is
@@ -304,7 +303,7 @@ def resolve_sample_identity(
     Supports all three policies:
       - error: raises InvariantViolation on first collision (exit 3).
       - first: drops duplicates in input order; first occurrence wins.
-      - suffix: renames duplicates per HLD v3.5:
+      - suffix: renames duplicates:
           * General mode: input[N>0]'s colliding sample gets `_<input_idx>`.
           * Single-target mode (one entry in target_idxs): suffix is `_target`.
           * Multi-target mode (>=2 in target_idxs): suffix is `_target_<input_idx>`.
