@@ -262,7 +262,12 @@ def build_alignment_table(
     table = canonical_pvar[["chrom", "pos", "id", "ref", "alt"]].copy()
     table["cm"] = cm_col
     table = table.rename(columns={"id": "variant_id"})
-    table["canonical_idx"] = np.arange(len(table), dtype=np.int64)
+    # canonical_idx is the .pgen row position (pre-filter row index from
+    # read_pvar's `_pgen_row`), not the post-filter pandas index — pgenlib's
+    # read_list indexes against the original .pgen layout, so post-filter
+    # 0..N-1 would silently mis-read whenever read_pvar dropped any non-SNP
+    # biallelic rows upstream of a kept SNP.
+    table["canonical_idx"] = canonical_pvar["_pgen_row"].to_numpy()
 
     merge_keys = ["chrom", "pos"] if policy.variant_key == "chr_pos" else ["id"]
     canonical_key_set = _key_set(canonical_pvar, policy.variant_key)
@@ -274,8 +279,10 @@ def build_alignment_table(
     for i, other_pvar in enumerate(other_pvars):
         input_idx = i + 1  # input[0] is canonical; non-canonical are 1, 2, ...
 
-        # Tag other rows with their original index for downstream pass 2.
-        other_indexed = other_pvar.assign(_other_idx=np.arange(len(other_pvar), dtype=np.int64))
+        # Tag other rows with their .pgen row position (read_pvar's
+        # `_pgen_row`) for downstream pass 2; pgenlib indexes against the
+        # original .pgen layout, not the post-filter pandas index.
+        other_indexed = other_pvar.assign(_other_idx=other_pvar["_pgen_row"].to_numpy())
         merged = pd.merge(
             canonical_pvar[[*merge_keys, "ref", "alt"]],
             other_indexed[[*merge_keys, "_other_idx", "ref", "alt"]].rename(

@@ -16,7 +16,7 @@ from ..concurrency import output_lock
 from ..errors import InvariantViolation, PgenSamplebindError
 from ..formats import prepared_input
 from ..merge import merge_inputs
-from ..pvar import check_max_alleles, count_raw_variants
+from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
 from ..types import (
     InputDescriptor,
     MergeContext,
@@ -151,9 +151,22 @@ def run_merge(
             for i, p in enumerate(all_input_paths)
         ]
 
-        # Step 5: per-input multi-allelic startup check
+        # Step 5: per-input multi-allelic startup check + pvar/pgen row-count
+        # consistency check. The row-count check catches mis-paired triplets
+        # (different make-pgen runs, truncated file) that would otherwise
+        # produce silent dosage corruption — the same failure shape as a
+        # pre-`_pgen_row` build merging a panel with biallelic indels.
+        # The row-count check returns the raw .pvar line count so step 7
+        # can reuse it for the descriptor n_variants population, avoiding
+        # a second full-file scan (matters at 84M-variant panel scale).
+        # Stored as a list parallel to `descriptors` (by index, not keyed
+        # by pgen_path) so the self-merge case — same path twice in the
+        # input list — addresses two genuinely-independent descriptor
+        # slots rather than collapsing into one dict entry.
+        n_variants_per_input: list[int] = []
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
+            n_variants_per_input.append(check_pvar_pgen_row_count_consistent(desc.pgen_path))
 
         # Step 6: read psams; detect population column; rename → POP.
         # NOTE: add_fid_from_pop must run AFTER --relabel-from (Day 9), because
@@ -179,12 +192,16 @@ def run_merge(
         # Now FID = POP (after any relabel applied)
         psam_dfs = [psam.add_fid_from_pop(df) for df in psam_dfs]
 
-        # Populate descriptor n_samples (from psam) and n_variants (cheap raw line
-        # count from .pvar) — both used by reporting; merge_inputs reads pvars
-        # internally and doesn't depend on n_variants here.
+        # Populate descriptor n_samples (from psam) and n_variants — both used
+        # by reporting; merge_inputs reads pvars internally and doesn't depend
+        # on n_variants here. n_variants is reused from step 5's row-count
+        # check rather than scanning the .pvar a second time. `strict=True`
+        # on the triple-zip pins the parallel-list invariant: any drift
+        # between descriptors / psam_dfs / n_variants_per_input is a bug
+        # and we want it to raise here rather than silently misalign.
         descriptors = [
-            replace(d, n_samples=len(df), n_variants=count_raw_variants(d.pvar_path))
-            for d, df in zip(descriptors, psam_dfs, strict=True)
+            replace(d, n_samples=len(df), n_variants=n_variants)
+            for d, df, n_variants in zip(descriptors, psam_dfs, n_variants_per_input, strict=True)
         ]
 
         # Step 10: resolve sample identity (collision policy applied; target_idxs
