@@ -11,6 +11,7 @@ from pathlib import Path
 from .. import __version__
 from ..afs import compute_afs, write_afs_tsvs
 from ..formats import prepared_input
+from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
 
 
 def run_afs(
@@ -43,6 +44,14 @@ def run_afs(
         desc = stack.enter_context(
             prepared_input(input_path, is_target=False, include_chrom=include_chrom)
         )
+
+        # Multi-allelic input would SIGSEGV inside pgenlib's read_range
+        # (same C-layer crash check_max_alleles guards against in merge /
+        # validate / inspect — afs hits the same C path). Row-count
+        # consistency catches mis-paired triplets that would otherwise
+        # over- or under-read the .pgen and silently corrupt frequencies.
+        check_max_alleles(desc.pgen_path)
+        check_pvar_pgen_row_count_consistent(desc.pgen_path)
 
         # compute_afs resolves --population-column via the same
         # POP/PHENO/PHENO1 auto-detect that merge and validate use when

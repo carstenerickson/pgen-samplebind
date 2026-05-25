@@ -164,7 +164,9 @@ def compute_afs(
     # Use the `_pgen_row` column read_pvar stamps before filtering so the
     # read_list call lands on the right .pgen rows even when biallelic
     # indels were dropped from the pandas DataFrame.
-    original_indices = pvar.loc[keep_mask, "_pgen_row"].to_numpy().astype(np.int64)
+    # uint32 from read_pvar — pgenlib's native variant_idx type; the
+    # `int(...)` calls at the read_range/read boundaries upcast cleanly.
+    original_indices = pvar.loc[keep_mask, "_pgen_row"].to_numpy()
 
     # 4. Streaming aggregation. Per-(variant, population) accumulators:
     #    alt_count[v, p]    = Σ over samples in p: g     (diploid)

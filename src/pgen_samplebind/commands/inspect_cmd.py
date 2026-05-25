@@ -113,10 +113,13 @@ def _build_summary(input_path: Path) -> dict[str, Any]:
         # pvar/pgen row-count mismatch would either over- or under-read
         # the .pgen and produce a garbage histogram; both soft-skip with
         # a structured reason rather than failing the whole inspect.
+        # n_pre_filter is the raw .pvar line count that was already
+        # computed above — pass it through so the guardrail doesn't
+        # re-scan the .pvar (matters at full-panel scale).
         missingness: dict[str, Any] | None
         try:
             check_max_alleles(desc.pgen_path)
-            check_pvar_pgen_row_count_consistent(desc.pgen_path)
+            check_pvar_pgen_row_count_consistent(desc.pgen_path, n_pvar=n_pre_filter)
         except InvariantViolation as e:
             missingness = {"status": "skipped", "reason": str(e)}
         else:

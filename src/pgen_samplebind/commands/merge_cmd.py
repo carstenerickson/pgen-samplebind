@@ -16,7 +16,7 @@ from ..concurrency import output_lock
 from ..errors import InvariantViolation, PgenSamplebindError
 from ..formats import prepared_input
 from ..merge import merge_inputs
-from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent, count_raw_variants
+from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
 from ..types import (
     InputDescriptor,
     MergeContext,
@@ -156,9 +156,15 @@ def run_merge(
         # (different make-pgen runs, truncated file) that would otherwise
         # produce silent dosage corruption — the same failure shape as a
         # pre-`_pgen_row` build merging a panel with biallelic indels.
+        # The row-count check returns the raw .pvar line count so step 7
+        # can reuse it for the descriptor n_variants population, avoiding
+        # a second full-file scan (matters at 84M-variant panel scale).
+        n_variants_per_input: dict[Path, int] = {}
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
-            check_pvar_pgen_row_count_consistent(desc.pgen_path)
+            n_variants_per_input[desc.pgen_path] = check_pvar_pgen_row_count_consistent(
+                desc.pgen_path
+            )
 
         # Step 6: read psams; detect population column; rename → POP.
         # NOTE: add_fid_from_pop must run AFTER --relabel-from (Day 9), because
@@ -184,11 +190,12 @@ def run_merge(
         # Now FID = POP (after any relabel applied)
         psam_dfs = [psam.add_fid_from_pop(df) for df in psam_dfs]
 
-        # Populate descriptor n_samples (from psam) and n_variants (cheap raw line
-        # count from .pvar) — both used by reporting; merge_inputs reads pvars
-        # internally and doesn't depend on n_variants here.
+        # Populate descriptor n_samples (from psam) and n_variants — both used
+        # by reporting; merge_inputs reads pvars internally and doesn't depend
+        # on n_variants here. n_variants is reused from step 5's row-count
+        # check rather than scanning the .pvar a second time.
         descriptors = [
-            replace(d, n_samples=len(df), n_variants=count_raw_variants(d.pvar_path))
+            replace(d, n_samples=len(df), n_variants=n_variants_per_input[d.pgen_path])
             for d, df in zip(descriptors, psam_dfs, strict=True)
         ]
 

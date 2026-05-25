@@ -140,13 +140,13 @@ class TestCanonicalPassthroughByteIdentity:
 
 class TestNonCanonicalReadByteIdentity:
     """Pre-fix, the non-canonical (input[1+]) read path had the same
-    misindex bug via `idx_input_<i>`. Bind two copies of the panel as
-    canonical + a second non-canonical input; under `--on-collision
-    first` the second input's samples are dropped but their genotypes
-    are still READ from the .pgen (the gate that decides what to drop
-    runs on the alignment table). A byte-perfect canonical block is the
-    visible signal that both index paths now address the right .pgen
-    rows.
+    misindex bug via `idx_input_<i>`. Bind a canonical panel + a second
+    panel with the same interleaved-indel layout but distinct IIDs (so
+    both contribute samples to the output, no collision policy needed).
+    Output sample axis is then S0..S5 (canonical) followed by B0..B5
+    (non-canonical); both halves must be byte-identical to their source
+    pgens at the surviving SNP rows — that's the visible signal that
+    canonical_idx and idx_input_<i> both address the right .pgen rows.
     """
 
     def test_two_input_merge_canonical_block_is_byte_identical(
