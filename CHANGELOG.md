@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
 ### Fixed
 
 - **Silent panel-sample GT corruption when input .pvar contains biallelic non-SNP rows** (e.g., biallelic indels). Closes [#10](https://github.com/carstenerickson/pgen-samplebind/issues/10). Present in all releases since v0.1.0. `pvar.read_pvar` filters out multi-character REF/ALT rows and re-indexes 0..N-1, but `alignment.build_alignment_table` was stamping `canonical_idx` / `idx_input_<i>` with `np.arange(len(filtered_pvar))` and feeding those values straight into `pgenlib.PgenReader.read_list`, which indexes against the **original** .pgen row layout. Any non-SNP row upstream of a kept SNP shifted all subsequent reads by one .pgen row, silently mis-reading genotype bytes (and producing ~17% pure 0↔2 dosage inversions at the affected sites under full-panel HGDP+1kGP merges). `check_max_alleles` did not catch this because biallelic indels have `max_allele_ct == 2`, and `--report-json` did not surface it because the alignment table itself was internally consistent — only the *.pgen read* was misaligned. **Fix:** `read_pvar` now stamps every row with `_pgen_row` (its position in the raw .pvar / .pgen) BEFORE the biallelic-SNP filter, and `alignment.build_alignment_table` / `afs.compute_afs` use that column instead of `np.arange`. The column is stored as `uint32` (pgenlib's native variant_idx type, capped at uint32 by .pgen format spec) so the per-pvar memory overhead is 4 bytes per row — ~336 MB on an 84M-variant panel, ~6% of the existing pvar DataFrame footprint. Workaround pre-fix: pre-filter canonical to biallelic SNPs only via `plink2 --pfile … --max-alleles 2 --snps-only --make-pgen --out preprocessed`.
@@ -146,7 +148,8 @@ Initial public release. The missing `plink2 --pmerge` non-concatenating case for
 - BFILE-only output not supported (use `plink2 --pfile out --make-bed` if needed).
 - EIGENSTRAT/BFILE input requires `plink2 v2.0.0-a.7.1+` on PATH (the `--eigfile`/`--make-pgen` path); pure-PFILE workflows have no plink2 dependency.
 
-[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.2.0...v0.3.0

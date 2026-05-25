@@ -285,7 +285,7 @@ End-to-end byte-equal qpAdm parity against the established `mergeit + plink2 + A
 
 ## Status
 
-v0.3.2 — bugfix release. Closes [#6](https://github.com/carstenerickson/pgen-samplebind/issues/6): re-binding pgen-samplebind's own output with `--population-column FID` previously crashed because the prior output's `POP` column collided with the rename target. `psam.rename_to_pop` is now round-trippable through itself, unblocking the documented "panel extension" canonical use case (incrementally adding populations to a previously-bound dataset without rebuilding the full merge from scratch).
+v0.4.0 — silent-corruption fix release. Closes [#10](https://github.com/carstenerickson/pgen-samplebind/issues/10): `merge` could silently mis-read panel-sample genotype bytes when the canonical `.pvar` contained biallelic non-SNP rows (e.g., biallelic indels), producing ~17% pure 0↔2 dosage inversions at affected sites with no error, no warning, and no `--report-json` flag. Present in every release since v0.1.0. Fixed by stamping the original `.pgen` row position (`_pgen_row`, uint32) through `read_pvar`'s biallelic-SNP filter so downstream `pgenlib.PgenReader.read_list` calls land on the correct rows. Hardened with a new `check_pvar_pgen_row_count_consistent` startup guardrail wired into `merge` / `validate` / `inspect` / `afs` that catches mis-paired triplets (a separate failure shape with the same silent-corruption signature). **Any consumer running `pgen-samplebind merge` or `afs` against a full-scale (>10M variant) panel should re-run their pipeline after upgrading.**
 
 See [CHANGELOG.md](CHANGELOG.md) for the full feature list and known limitations.
 
