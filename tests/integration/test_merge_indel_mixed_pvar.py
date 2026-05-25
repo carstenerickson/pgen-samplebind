@@ -45,14 +45,10 @@ def _write_mixed_pfile(
     pvar_df = pd.DataFrame(pvar_rows, columns=["#CHROM", "POS", "ID", "REF", "ALT"])
     pvar_df.to_csv(str(prefix) + ".pvar", sep="\t", index=False, lineterminator="\n")
 
-    psam_df = pd.DataFrame(
-        {"#IID": iids, "SEX": [1] * n_samples, "POP": ["p0"] * n_samples}
-    )
+    psam_df = pd.DataFrame({"#IID": iids, "SEX": [1] * n_samples, "POP": ["p0"] * n_samples})
     psam_df.to_csv(str(prefix) + ".psam", sep="\t", index=False, lineterminator="\n")
 
-    writer = pgenlib.PgenWriter(
-        str(prefix).encode() + b".pgen", n_samples, len(pvar_rows)
-    )
+    writer = pgenlib.PgenWriter(str(prefix).encode() + b".pgen", n_samples, len(pvar_rows))
     try:
         writer.append_biallelic_batch(geno)
     finally:
@@ -93,10 +89,7 @@ def panel_with_interleaved_indels(tmp_path: Path) -> tuple[Path, np.ndarray, np.
     # like ("CG", "C") and silently miscount the expected kept count.
     bases = {"A", "C", "G", "T"}
     kept_mask = np.array(
-        [
-            len(r[3]) == 1 and len(r[4]) == 1 and r[3] in bases and r[4] in bases
-            for r in pvar_rows
-        ],
+        [len(r[3]) == 1 and len(r[4]) == 1 and r[3] in bases and r[4] in bases for r in pvar_rows],
         dtype=bool,
     )
     return prefix, geno, kept_mask

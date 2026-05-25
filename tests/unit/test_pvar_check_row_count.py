@@ -25,9 +25,7 @@ from pgen_samplebind.errors import InvariantViolation
 from pgen_samplebind.pvar import check_pvar_pgen_row_count_consistent
 
 
-def _write_pfile_pair(
-    prefix: Path, n_pvar_rows: int, n_pgen_rows: int, n_samples: int = 4
-) -> Path:
+def _write_pfile_pair(prefix: Path, n_pvar_rows: int, n_pgen_rows: int, n_samples: int = 4) -> Path:
     """Write a (.pvar, .pgen) pair whose row counts can disagree. Returns
     the .pgen path (callers pass this to the guardrail; the .pvar sibling
     is auto-resolved). Genotypes are all-zero — only the row count matters

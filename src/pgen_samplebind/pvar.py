@@ -339,9 +339,7 @@ def check_max_alleles(pgen_path: Path) -> None:
         )
 
 
-def check_pvar_pgen_row_count_consistent(
-    pgen_path: Path, n_pvar: int | None = None
-) -> int:
+def check_pvar_pgen_row_count_consistent(pgen_path: Path, n_pvar: int | None = None) -> int:
     """Assert the raw .pvar data-line count equals the .pgen variant_ct,
     and return the raw .pvar count for callers that want to reuse it.
 

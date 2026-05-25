@@ -166,9 +166,7 @@ def run_merge(
         n_variants_per_input: list[int] = []
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
-            n_variants_per_input.append(
-                check_pvar_pgen_row_count_consistent(desc.pgen_path)
-            )
+            n_variants_per_input.append(check_pvar_pgen_row_count_consistent(desc.pgen_path))
 
         # Step 6: read psams; detect population column; rename → POP.
         # NOTE: add_fid_from_pop must run AFTER --relabel-from (Day 9), because
@@ -203,9 +201,7 @@ def run_merge(
         # and we want it to raise here rather than silently misalign.
         descriptors = [
             replace(d, n_samples=len(df), n_variants=n_variants)
-            for d, df, n_variants in zip(
-                descriptors, psam_dfs, n_variants_per_input, strict=True
-            )
+            for d, df, n_variants in zip(descriptors, psam_dfs, n_variants_per_input, strict=True)
         ]
 
         # Step 10: resolve sample identity (collision policy applied; target_idxs
