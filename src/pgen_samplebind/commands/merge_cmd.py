@@ -159,11 +159,15 @@ def run_merge(
         # The row-count check returns the raw .pvar line count so step 7
         # can reuse it for the descriptor n_variants population, avoiding
         # a second full-file scan (matters at 84M-variant panel scale).
-        n_variants_per_input: dict[Path, int] = {}
+        # Stored as a list parallel to `descriptors` (by index, not keyed
+        # by pgen_path) so the self-merge case — same path twice in the
+        # input list — addresses two genuinely-independent descriptor
+        # slots rather than collapsing into one dict entry.
+        n_variants_per_input: list[int] = []
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
-            n_variants_per_input[desc.pgen_path] = check_pvar_pgen_row_count_consistent(
-                desc.pgen_path
+            n_variants_per_input.append(
+                check_pvar_pgen_row_count_consistent(desc.pgen_path)
             )
 
         # Step 6: read psams; detect population column; rename → POP.
@@ -193,10 +197,15 @@ def run_merge(
         # Populate descriptor n_samples (from psam) and n_variants — both used
         # by reporting; merge_inputs reads pvars internally and doesn't depend
         # on n_variants here. n_variants is reused from step 5's row-count
-        # check rather than scanning the .pvar a second time.
+        # check rather than scanning the .pvar a second time. `strict=True`
+        # on the triple-zip pins the parallel-list invariant: any drift
+        # between descriptors / psam_dfs / n_variants_per_input is a bug
+        # and we want it to raise here rather than silently misalign.
         descriptors = [
-            replace(d, n_samples=len(df), n_variants=n_variants_per_input[d.pgen_path])
-            for d, df in zip(descriptors, psam_dfs, strict=True)
+            replace(d, n_samples=len(df), n_variants=n_variants)
+            for d, df, n_variants in zip(
+                descriptors, psam_dfs, n_variants_per_input, strict=True
+            )
         ]
 
         # Step 10: resolve sample identity (collision policy applied; target_idxs

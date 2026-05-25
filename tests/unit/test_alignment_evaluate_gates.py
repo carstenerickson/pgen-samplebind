@@ -20,11 +20,12 @@ def _pvar_df(
     chroms: list[int], positions: list[int], ids: list[str], refs: list[str], alts: list[str]
 ) -> pd.DataFrame:
     """Build a pvar DataFrame in the canonical schema produced by pvar.read_pvar
-    (includes `_pgen_row`, which build_alignment_table now reads from)."""
+    (includes `_pgen_row` as uint32 — pgenlib's native variant_idx type —
+    which build_alignment_table now reads from)."""
     df = pd.DataFrame(
         {"chrom": chroms, "pos": positions, "id": ids, "ref": refs, "alt": alts}
     ).astype({"chrom": "int8", "pos": "int64"})
-    df["_pgen_row"] = np.arange(len(df), dtype=np.int64)
+    df["_pgen_row"] = np.arange(len(df), dtype=np.uint32)
     return df
 
 

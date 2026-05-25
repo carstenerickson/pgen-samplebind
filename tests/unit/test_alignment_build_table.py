@@ -34,14 +34,15 @@ def _pvar_df(
 ) -> pd.DataFrame:
     """Build a pvar DataFrame in the canonical schema produced by pvar.read_pvar.
 
-    Includes `_pgen_row` (the original .pgen row position read_pvar stamps
-    before its biallelic-SNP filter). These synthetic inputs have no
-    pre-filter rows, so `_pgen_row` matches the row index.
+    Includes `_pgen_row` (uint32, pgenlib's native variant_idx type — the
+    original .pgen row position read_pvar stamps before its biallelic-SNP
+    filter). These synthetic inputs have no pre-filter rows, so `_pgen_row`
+    matches the row index.
     """
     df = pd.DataFrame(
         {"chrom": chroms, "pos": positions, "id": ids, "ref": refs, "alt": alts}
     ).astype({"chrom": "int8", "pos": "int64"})
-    df["_pgen_row"] = np.arange(len(df), dtype=np.int64)
+    df["_pgen_row"] = np.arange(len(df), dtype=np.uint32)
     return df
 
 
