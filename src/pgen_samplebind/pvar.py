@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Literal
 
+import numpy as np
 import pandas as pd
 
 from .errors import InvariantViolation, IOFailure
@@ -203,6 +204,14 @@ def read_pvar(path: Path) -> pd.DataFrame:
     if missing:
         raise IOFailure(f"{path} missing required columns: {sorted(missing)}")
 
+    # Stamp every row with its original .pgen row position BEFORE the
+    # biallelic-SNP filter drops non-SNP rows. The .pgen stores genotypes
+    # in original .pvar row order; downstream code must index into the
+    # .pgen by this column rather than by the post-filter pandas index,
+    # which is re-numbered 0..N-1 by the reset_index below and no longer
+    # matches the .pgen row layout once any rows have been filtered out.
+    df["_pgen_row"] = np.arange(len(df), dtype=np.int64)
+
     # Biallelic-SNP filter (vectorized): single-character ACGT REF and ALT.
     is_biallelic_snp = (
         df["REF"].str.len().eq(1)
@@ -319,4 +328,47 @@ def check_max_alleles(pgen_path: Path) -> None:
             f"pgen-samplebind requires biallelic input. Preprocess with: "
             f"plink2 --pfile {pgen_path.with_suffix('')} --max-alleles 2 --snps-only "
             f"--make-pgen --out preprocessed"
+        )
+
+
+def check_pvar_pgen_row_count_consistent(pgen_path: Path) -> None:
+    """Assert the raw .pvar data-line count equals the .pgen variant_ct.
+
+    A mismatch indicates a mis-paired triplet (e.g., a .pgen and .pvar
+    that came from different make-pgen runs, or one of the two was
+    truncated). The merge / afs / inspect code paths index genotype reads
+    by .pvar row position, so this invariant must hold for byte-correct
+    output. Without this check, a mismatch produces silent corruption.
+
+    Raises:
+        InvariantViolation: row counts disagree.
+        IOFailure: cannot open .pgen for the check.
+    """
+    import pgenlib  # lazy import; pgenlib's load is non-trivial
+
+    base = pgen_path.with_suffix("")
+    pvar_path = Path(str(base) + ".pvar")
+    if not pvar_path.exists():
+        zst_path = Path(str(base) + ".pvar.zst")
+        if zst_path.exists():
+            pvar_path = zst_path
+    n_pvar = count_raw_variants(pvar_path)
+    try:
+        reader = pgenlib.PgenReader(str(pgen_path).encode())
+    except Exception as e:
+        raise IOFailure(f"cannot open {pgen_path} for row-count check: {e}") from e
+    try:
+        n_pgen = int(reader.get_variant_ct())
+    finally:
+        close = getattr(reader, "close", None)
+        if callable(close):
+            with contextlib.suppress(Exception):
+                close()
+        del reader
+    if n_pvar != n_pgen:
+        raise InvariantViolation(
+            f"{pgen_path} variant_ct ({n_pgen}) disagrees with sibling "
+            f"{pvar_path} data-line count ({n_pvar}). The .pgen and .pvar "
+            f"appear mis-paired or one is truncated; re-export the triplet "
+            f"with `plink2 --pfile {base} --make-pgen --out fixed`."
         )

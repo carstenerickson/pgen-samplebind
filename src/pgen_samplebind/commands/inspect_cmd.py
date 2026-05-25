@@ -17,7 +17,12 @@ import numpy as np
 from ..errors import InvariantViolation
 from ..formats import prepared_input
 from ..psam import detect_population_column, read_psam, rename_to_pop
-from ..pvar import check_max_alleles, count_raw_variants, read_pvar
+from ..pvar import (
+    check_max_alleles,
+    check_pvar_pgen_row_count_consistent,
+    count_raw_variants,
+    read_pvar,
+)
 
 # Per-sample-missing-rate bin edges: 10 deciles spanning [0, 1.0001) so that
 # rate == 1.0 (100% missing) lands in the final bin rather than escaping it.
@@ -104,11 +109,14 @@ def _build_summary(input_path: Path) -> dict[str, Any]:
         chrom_counts_sorted = {int(k): int(v) for k, v in sorted(chrom_counts.items())}
 
         # Missingness histogram via PgenReader iteration.
-        # Multi-allelic input would SIGSEGV inside read_range, so we soft-skip
-        # if check_max_alleles raises rather than failing the whole inspect.
+        # Multi-allelic input would SIGSEGV inside read_range, and a
+        # pvar/pgen row-count mismatch would either over- or under-read
+        # the .pgen and produce a garbage histogram; both soft-skip with
+        # a structured reason rather than failing the whole inspect.
         missingness: dict[str, Any] | None
         try:
             check_max_alleles(desc.pgen_path)
+            check_pvar_pgen_row_count_consistent(desc.pgen_path)
         except InvariantViolation as e:
             missingness = {"status": "skipped", "reason": str(e)}
         else:

@@ -16,7 +16,7 @@ from ..concurrency import output_lock
 from ..errors import InvariantViolation, PgenSamplebindError
 from ..formats import prepared_input
 from ..merge import merge_inputs
-from ..pvar import check_max_alleles, count_raw_variants
+from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent, count_raw_variants
 from ..types import (
     InputDescriptor,
     MergeContext,
@@ -151,9 +151,14 @@ def run_merge(
             for i, p in enumerate(all_input_paths)
         ]
 
-        # Step 5: per-input multi-allelic startup check
+        # Step 5: per-input multi-allelic startup check + pvar/pgen row-count
+        # consistency check. The row-count check catches mis-paired triplets
+        # (different make-pgen runs, truncated file) that would otherwise
+        # produce silent dosage corruption — the same failure shape as a
+        # pre-`_pgen_row` build merging a panel with biallelic indels.
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
+            check_pvar_pgen_row_count_consistent(desc.pgen_path)
 
         # Step 6: read psams; detect population column; rename → POP.
         # NOTE: add_fid_from_pop must run AFTER --relabel-from (Day 9), because

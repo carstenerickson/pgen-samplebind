@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Silent panel-sample GT corruption when input .pvar contains biallelic non-SNP rows** (e.g., biallelic indels). Closes [#10](https://github.com/carstenerickson/pgen-samplebind/issues/10). `pvar.read_pvar` filters out multi-character REF/ALT rows and re-indexes 0..N-1, but `alignment.build_alignment_table` was stamping `canonical_idx` / `idx_input_<i>` with `np.arange(len(filtered_pvar))` and feeding those values straight into `pgenlib.PgenReader.read_list`, which indexes against the **original** .pgen row layout. Any non-SNP row upstream of a kept SNP shifted all subsequent reads by one .pgen row, silently mis-reading genotype bytes (and producing ~17% pure 0↔2 dosage inversions at the affected sites under full-panel HGDP+1kGP merges). `check_max_alleles` did not catch this because biallelic indels have `max_allele_ct == 2`, and `--report-json` did not surface it because the alignment table itself was internally consistent — only the *.pgen read* was misaligned. **Fix:** `read_pvar` now stamps every row with `_pgen_row` (its position in the raw .pvar / .pgen) BEFORE the biallelic-SNP filter, and `alignment.build_alignment_table` and `afs.compute_afs` use that column instead of `np.arange`. Workaround pre-fix: pre-filter canonical to biallelic SNPs only via `plink2 --pfile … --max-alleles 2 --snps-only --make-pgen --out preprocessed`.
+
+### Added
+
+- **`pvar.check_pvar_pgen_row_count_consistent` startup guardrail** wired into `merge`, `validate`, and `inspect`. Catches mis-paired triplets (a .pgen and .pvar that came from different make-pgen runs, or one of the two was truncated) by asserting `count_raw_variants(.pvar) == reader.get_variant_ct(.pgen)`. Without it, a row-count mismatch silently over- or under-reads the .pgen and corrupts dosages — the same failure shape as the [#10](https://github.com/carstenerickson/pgen-samplebind/issues/10) `_pgen_row` bug from a different cause.
+
 ### Changed
 
 - **`hash` canonical sort key now includes REF/ALT** (was `[chrom, pos]` only). Same `(chrom, pos)` rows from two different on-disk orderings used to land in input order after the stable mergesort, producing different hashes — defeating the cross-format invariance the hash is meant to guarantee whenever a panel happened to carry duplicate `(chrom, pos)` rows (e.g., a tri-allelic site stored as two biallelic rows). **Behavior change worth flagging for upgraders:** for panels with at least one duplicate `(chrom, pos)`, the SHA-256 emitted by `pgen-samplebind hash` may differ from a pre-Unreleased version's output. Panels with unique `(chrom, pos)` (the typical case after `pvar.validate_unique_keys` runs upstream in the merge path) are unaffected. If you've stashed pre-Unreleased hashes for identity verification, re-hash the canonical input under the new version.

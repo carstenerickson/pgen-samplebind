@@ -158,9 +158,13 @@ def compute_afs(
             f"zero variants after include_chrom filter {include_chrom} in {descriptor.pvar_path}"
         )
 
-    # The PgenReader is variant-indexed against the FULL pvar (pre-filter).
-    # We track the original indices of the kept variants for read_range.
-    original_indices = np.where(keep_mask)[0].astype(np.int64)
+    # The PgenReader is variant-indexed against the original .pgen row
+    # layout (NOT against the post-`read_pvar` pandas index, which is
+    # already re-numbered 0..N-1 after read_pvar's biallelic-SNP filter).
+    # Use the `_pgen_row` column read_pvar stamps before filtering so the
+    # read_list call lands on the right .pgen rows even when biallelic
+    # indels were dropped from the pandas DataFrame.
+    original_indices = pvar.loc[keep_mask, "_pgen_row"].to_numpy().astype(np.int64)
 
     # 4. Streaming aggregation. Per-(variant, population) accumulators:
     #    alt_count[v, p]    = Σ over samples in p: g     (diploid)

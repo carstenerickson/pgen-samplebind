@@ -22,7 +22,7 @@ from ..alignment import (
     emit_extras_warning,
     evaluate_pass1_gates,
 )
-from ..pvar import check_max_alleles
+from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
 from ..types import AlignmentSummary, InputDescriptor, MergeCounters, MergePolicy
 
 
@@ -50,9 +50,10 @@ def run_validate(
             for p in input_paths
         ]
 
-        # Step 4: per-input multi-allelic check
+        # Step 4: per-input multi-allelic check + pvar/pgen row-count check
         for desc in descriptors:
             check_max_alleles(desc.pgen_path)
+            check_pvar_pgen_row_count_consistent(desc.pgen_path)
 
         # Step 5: read psams
         psam_dfs = []
