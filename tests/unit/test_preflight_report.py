@@ -137,15 +137,14 @@ def test_evaluate_gate_rejects_unclassified_comparisons(tmp_path: Path) -> None:
 
 
 def test_compute_preflight_low_intersection_same_chroms(tmp_path: Path) -> None:
-    """Different variant seeds on the same chromosomes → near-zero intersection.
+    """Different variant seeds on the same chromosomes → near-zero intersection
+    AND no consistent per-chrom position shift → `disjoint_panels`.
 
-    The classifier labels this `build_mismatch` (not `disjoint_panels`) because
-    chromosome coverage is symmetric on both sides — the classifier can't
-    distinguish 'same panel, different build' from 'two unrelated panels on
-    the same chromosomes' without signal it doesn't currently compute. The
-    actionable advice is the same in both cases; see classify_pair's
-    docstring for the caveat. The `disjoint_panels` label requires
-    *asymmetric* chrom presence, which the corpus's disjoint pair exercises.
+    Before the build-shift sharpener (commit-TBD), this case was forced into
+    the `build_mismatch` bucket purely on the symmetric-chrom signal. The
+    sharpener splits build_mismatch (uniform per-chrom position shift, the
+    real hg19/hg38 fingerprint) from disjoint-same-chroms (random positions
+    on overlapping chroms). Random variant_seeds with no shift→ disjoint.
     """
     a = _panel(tmp_path, "a", variant_seed=11)
     b = _panel(tmp_path, "b", variant_seed=999)
@@ -158,9 +157,16 @@ def test_compute_preflight_low_intersection_same_chroms(tmp_path: Path) -> None:
     pair = report.comparisons[0]
     # Random positions in a 1..100M space across 50 variants per panel: collisions vanishingly rare.
     assert pair.intersection_fraction_of_min < 0.1
-    # Pin the classifier label so any future refinement that distinguishes
-    # the build-vs-disjoint cases here surfaces deliberately.
-    assert pair.classification == "build_mismatch"
+    # The sharpened classifier: random positions on same chroms → not a
+    # consistent shift → disjoint, not build_mismatch.
+    assert pair.classification == "disjoint_panels"
+    # And the signature itself: computed, but flags no consistent shift.
+    sig = pair.build_shift_signature
+    assert sig is not None
+    assert sig["has_consistent_shift"] is False
+    # Evidence echoes the shift decision so users can audit it.
+    assert pair.classification_evidence is not None
+    assert pair.classification_evidence["build_shift_has_consistent_shift"] is False
 
 
 def test_compute_preflight_single_input(tmp_path: Path) -> None:
@@ -220,6 +226,7 @@ def test_write_preflight_json_roundtrip(tmp_path: Path) -> None:
         "alternate_key_other_size",
         "alternate_key_intersection",
         "alternate_key_fraction_of_min",
+        "build_shift_signature",
         "classification",
         "classification_evidence",
     }
@@ -242,3 +249,63 @@ def test_write_preflight_json_roundtrip(tmp_path: Path) -> None:
         "threshold",
         "failing_inputs",
     }
+
+
+def test_build_shift_sharpener_uniform_shift_keeps_build_mismatch_label(
+    tmp_path: Path,
+) -> None:
+    """A uniform +1M per-chrom POS shift (the hg19/hg38 fingerprint) must
+    still classify as `build_mismatch` after the sharpener. Catches a
+    regression where tightening the threshold accidentally drops the
+    label for the very case it's designed to flag.
+    """
+    import pandas as pd
+
+    a = _panel(tmp_path, "a", variant_seed=11, n_variants=200)
+    b_prefix = tmp_path / "b" / "shifted"
+    b_prefix.parent.mkdir(parents=True, exist_ok=True)
+    # Build b as a uniform-shifted copy of a's .pvar (keep .pgen and .psam
+    # untouched — the classifier only reads pvar). +1.5M per chrom is
+    # large enough to clear the magnitude floor and the +0/+1 noise.
+    import shutil
+
+    shutil.copy(Path(str(a) + ".pgen"), Path(str(b_prefix) + ".pgen"))
+    shutil.copy(Path(str(a) + ".psam"), Path(str(b_prefix) + ".psam"))
+    pvar = pd.read_csv(Path(str(a) + ".pvar"), sep="\t")
+    pvar["POS"] = pvar["POS"] + 1_500_000
+    pvar["ID"] = pvar.apply(lambda r: f"chr{r['#CHROM']}:{r['POS']}", axis=1)
+    pvar.to_csv(Path(str(b_prefix) + ".pvar"), sep="\t", index=False, lineterminator="\n")
+
+    descriptors = [_descriptor(a), _descriptor(b_prefix)]
+    report = compute_preflight(
+        descriptors, MergePolicy(), tool_version="test", command="merge"
+    )
+    pair = report.comparisons[0]
+    assert pair.classification == "build_mismatch"
+    sig = pair.build_shift_signature
+    assert sig is not None
+    assert sig["has_consistent_shift"] is True
+    # Every evaluated chrom should show the +1.5M shift cleanly.
+    for chrom_str, median in sig["median_shift_per_chrom"].items():
+        assert abs(median - 1_500_000) < 1, (
+            f"chr{chrom_str}: expected uniform shift ~1.5M, got median={median}"
+        )
+        assert sig["relative_mad_per_chrom"][chrom_str] < 0.01, (
+            f"chr{chrom_str}: shifts are uniform, relative MAD should be ~0"
+        )
+
+
+def test_build_shift_signature_absent_when_no_qualifying_chroms(tmp_path: Path) -> None:
+    """When the pair is compatible (high intersection), no chrom has
+    zero-overlap, so the signature isn't computed — `None` rather than
+    an empty dict. Pins the cost guarantee: identical-data pairs pay no
+    shift-computation overhead."""
+    a = _panel(tmp_path, "a", variant_seed=11)
+    b = _panel(tmp_path, "b", variant_seed=11)
+    descriptors = [_descriptor(a), _descriptor(b)]
+    report = compute_preflight(
+        descriptors, MergePolicy(), tool_version="test", command="merge"
+    )
+    pair = report.comparisons[0]
+    assert pair.classification == "compatible"
+    assert pair.build_shift_signature is None

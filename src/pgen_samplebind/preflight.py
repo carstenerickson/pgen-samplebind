@@ -26,6 +26,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .errors import IOFailure, InvariantViolation
@@ -72,6 +73,13 @@ class PairCompatibility:
     alternate_key_other_size: int | None = None
     alternate_key_intersection: int | None = None
     alternate_key_fraction_of_min: float | None = None
+    # Per-chrom position-shift consistency: distinguishes a true coordinate-
+    # build mismatch (uniform shift within each chrom, MAD ~0) from two
+    # unrelated panels that happen to cover the same chromosomes
+    # (shifts look like noise). Computed only for shared chroms with
+    # zero coord-level intersection AND >=5 variants on both sides;
+    # `None` when no chroms qualify. See `_compute_build_shift_signature`.
+    build_shift_signature: dict[str, Any] | None = None
     classification: str | None = None
     classification_evidence: dict[str, Any] | None = None
 
@@ -151,6 +159,12 @@ def compute_preflight(
         alt_denom = min(len(canonical_alt_keys), len(other_alt_keys))
         alt_fraction = (alt_intersection / alt_denom) if alt_denom > 0 else 0.0
 
+        # Build-shift signature: only computed when the per-chrom shape
+        # could plausibly indicate a build mismatch (shared chroms with
+        # zero coord overlap). Cheap when nothing qualifies — early-out
+        # inside the helper.
+        build_shift = _compute_build_shift_signature(canonical_df, other_df, per_chrom)
+
         pair = PairCompatibility(
             input_index=i,
             path=desc.path,
@@ -163,6 +177,7 @@ def compute_preflight(
             alternate_key_other_size=len(other_alt_keys),
             alternate_key_intersection=alt_intersection,
             alternate_key_fraction_of_min=alt_fraction,
+            build_shift_signature=build_shift,
         )
         label, evidence = classify_pair(pair)
         pair = replace(pair, classification=label, classification_evidence=evidence)
@@ -301,9 +316,10 @@ def format_gate_message(report: "PreflightReport") -> str:
 # classification semantics.
 _CLASSIFICATION_HINTS: dict[str, str] = {
     "build_mismatch": (
-        "Likely cause: coordinate-build mismatch (hg19 vs hg38) OR two "
-        "unrelated panels that happen to cover the same chromosomes. "
-        "Verify panel/build identity; liftover one side if builds differ."
+        "Likely cause: coordinate-build mismatch (hg19 vs hg38) — per-chrom "
+        "positions on both sides differ by a near-uniform shift, the "
+        "signature of a coordinate remap. Liftover one side to the other's "
+        "build (CrossMap or Picard LiftoverVcf) and re-run."
     ),
     "key_space_mismatch": (
         "The non-active variant key matches well. Try the other "
@@ -341,21 +357,22 @@ def classify_pair(pair: PairCompatibility) -> tuple[str, dict[str, Any]]:
         picked the wrong `--variant-key` for their data (e.g., chr_pos
         against an rsID-only panel).
       - `"build_mismatch"`: active-key fraction low, alternate-key
-        comparable, *and* every shared chromosome has canonical_size>0,
+        comparable, every shared chromosome has canonical_size>0,
         other_size>0, intersection=0, with symmetric chrom presence on
-        both sides. The hg19/hg38 fingerprint. **Caveat:** this label
-        also fires for two genuinely unrelated panels that happen to
-        cover the same chromosome set with zero coordinate overlap (the
-        common case for two human panels both restricted to autosomes
-        1-22). Distinguishing those from a true build mismatch requires
-        signal we don't yet compute (e.g., per-chrom position-shift
-        consistency) — the actionable advice ("verify panel/build
-        identity") is the same in both cases, so the label is
-        conservative on purpose.
-      - `"disjoint_panels"`: active-key fraction low with asymmetric
-        chrom presence (chroms exist in one side but not the other).
-        Catch-all for unrelated panels whose chrom coverage itself
-        differs — a strictly clearer signal than `build_mismatch`.
+        both sides, *and* the per-chrom position-shift signature shows
+        a consistent shift (build_shift_signature.has_consistent_shift
+        == True). The hg19/hg38 fingerprint: positions on each chrom
+        differ by a near-uniform delta, the signature of a coordinate
+        remap. Two unrelated panels with the same chrom set but random
+        independent positions fail the shift-consistency check and
+        instead fall through to `disjoint_panels` — the label split
+        that previously required a caveat is now sharpened.
+      - `"disjoint_panels"`: active-key fraction low with either
+        asymmetric chrom presence (chroms exist in one side but not
+        the other) OR symmetric chroms with zero overlap but no
+        consistent position shift (random positions, not a build
+        remap). Covers genuinely unrelated panels regardless of
+        whether their chrom sets coincide.
       - `"empty_input"`: at least one side has zero post-filter variants.
 
     Evidence carries the numbers the classifier keyed on so users can
@@ -410,21 +427,131 @@ def classify_pair(pair: PairCompatibility) -> tuple[str, dict[str, Any]]:
         return "key_space_mismatch", evidence
 
     # 2. Build mismatch — chrom coverage is *symmetric* (both sides cover
-    #    the same chroms) and every shared chrom is fully disjoint at the
-    #    coord level. The hg19/hg38 fingerprint: same panel, different
-    #    coordinates. Symmetry matters because asymmetric chrom presence
-    #    (e.g., canonical has chr2 but other doesn't) is the disjoint-
-    #    panels signature, not a build issue.
-    if (
+    #    the same chroms), every shared chrom is fully disjoint at the
+    #    coord level, AND the per-chrom position-shift signature shows
+    #    a consistent translation. The shift-consistency check is what
+    #    separates a true coordinate-build mismatch from two unrelated
+    #    panels that happen to share a chrom set (random positions →
+    #    no consistent shift → falls through to `disjoint_panels`).
+    symmetric_zero_overlap = (
         n_shared_chroms > 0
         and n_shared_chroms_zero_overlap == n_shared_chroms
         and n_chroms_only_canonical == 0
         and n_chroms_only_other == 0
-    ):
-        return "build_mismatch", evidence
+    )
+    if symmetric_zero_overlap:
+        sig = pair.build_shift_signature
+        # Echo the shift evidence so users see WHY the classifier picked
+        # `build_mismatch` vs `disjoint_panels` — the most-asked question
+        # when this label fires.
+        if sig is not None:
+            evidence["build_shift_n_chroms_evaluated"] = len(sig["chroms_evaluated"])
+            evidence["build_shift_n_consistent"] = sig["n_consistent_shift_chroms"]
+            evidence["build_shift_has_consistent_shift"] = sig["has_consistent_shift"]
+        if sig is not None and sig["has_consistent_shift"]:
+            return "build_mismatch", evidence
+        # Same-chrom no-overlap without a consistent shift → disjoint.
 
-    # 3. Otherwise: genuinely disjoint panels.
+    # 3. Otherwise (asymmetric chroms OR same-chrom-no-shift): disjoint.
     return "disjoint_panels", evidence
+
+
+# --- Build-shift signature ----------------------------------------------
+#
+# Distinguishes a true hg19/hg38-style coordinate-build mismatch (uniform
+# per-chrom position shift) from two unrelated panels that happen to
+# cover the same chromosome set (positions look like noise). Only
+# evaluated for shared chroms with zero coord-level intersection where
+# both sides have enough variants for a stable median (>=5). For each
+# qualifying chrom we sort positions on both sides, rank-align them, and
+# look at:
+#   - median(other_sorted[i] - canonical_sorted[i]) → the per-chrom shift
+#   - MAD(shifts) / max(|median_shift|, 1) → "relative MAD"
+# Build mismatch: relative MAD ≈ 0 (shift is uniform within a chrom).
+# Disjoint panels: relative MAD is large (sorted-position differences
+# are dominated by sampling noise, not a real translation).
+_BUILD_SHIFT_MIN_VARIANTS_PER_CHROM = 5
+_BUILD_SHIFT_MAX_RELATIVE_MAD = 0.1  # smaller = more uniform
+_BUILD_SHIFT_MIN_MAGNITUDE = 1000  # bp; below this is sampling noise
+_BUILD_SHIFT_MIN_FRACTION_CHROMS = 0.5  # at least half of evaluated chroms
+# must show a consistent shift to call it build_mismatch
+
+
+def _compute_build_shift_signature(
+    canonical_df: pd.DataFrame,
+    other_df: pd.DataFrame,
+    per_chrom: tuple[PerChromCompat, ...],
+) -> dict[str, Any] | None:
+    """Per-chrom rank-aligned position-shift summary.
+
+    Returns None when no chroms qualify (no shared zero-overlap chrom
+    has >=_BUILD_SHIFT_MIN_VARIANTS_PER_CHROM on both sides). When some
+    chroms qualify, returns a dict with:
+      - chroms_evaluated: list[int]
+      - median_shift_per_chrom: dict[str, float]  (int keys stringified
+        for JSON consumers)
+      - relative_mad_per_chrom: dict[str, float]
+      - n_consistent_shift_chroms: int  (chroms passing both the
+        magnitude and relative-MAD thresholds)
+      - has_consistent_shift: bool  (>= _BUILD_SHIFT_MIN_FRACTION_CHROMS
+        of evaluated chroms are consistent — the classifier's
+        build-mismatch trigger)
+
+    Pure helper; takes already-read pvar DataFrames so the classifier
+    can stay a pure function on `PairCompatibility`.
+    """
+    qualifying: list[int] = [
+        int(pc.chrom)
+        for pc in per_chrom
+        if pc.canonical_size >= _BUILD_SHIFT_MIN_VARIANTS_PER_CHROM
+        and pc.other_size >= _BUILD_SHIFT_MIN_VARIANTS_PER_CHROM
+        and pc.intersection == 0
+    ]
+    if not qualifying:
+        return None
+
+    median_shift_per_chrom: dict[str, float] = {}
+    relative_mad_per_chrom: dict[str, float] = {}
+    n_consistent = 0
+
+    # Pull chrom→positions arrays once per input. The .to_numpy() avoids
+    # per-iteration pandas indexing and is cheap relative to the read_pvar
+    # call that already ran upstream.
+    can_chrom = canonical_df["chrom"].to_numpy()
+    can_pos = canonical_df["pos"].to_numpy()
+    oth_chrom = other_df["chrom"].to_numpy()
+    oth_pos = other_df["pos"].to_numpy()
+
+    for chrom in qualifying:
+        can_sorted = np.sort(can_pos[can_chrom == chrom])
+        oth_sorted = np.sort(oth_pos[oth_chrom == chrom])
+        n = min(len(can_sorted), len(oth_sorted))
+        # rank-align: i-th smallest on each side
+        shifts = oth_sorted[:n].astype(np.int64) - can_sorted[:n].astype(np.int64)
+        median = float(np.median(shifts))
+        mad = float(np.median(np.abs(shifts - median)))
+        relative_mad = mad / max(abs(median), 1.0)
+        median_shift_per_chrom[str(chrom)] = median
+        relative_mad_per_chrom[str(chrom)] = relative_mad
+        if (
+            abs(median) >= _BUILD_SHIFT_MIN_MAGNITUDE
+            and relative_mad <= _BUILD_SHIFT_MAX_RELATIVE_MAD
+        ):
+            n_consistent += 1
+
+    # "Consistent shift across enough chroms" — protects against one
+    # chrom coincidentally lining up while others stay noise. A pair
+    # with a single qualifying chrom needs that chrom to be consistent.
+    min_required = max(1, int(_BUILD_SHIFT_MIN_FRACTION_CHROMS * len(qualifying) + 0.5))
+    has_consistent_shift = n_consistent >= min_required
+
+    return {
+        "chroms_evaluated": qualifying,
+        "median_shift_per_chrom": median_shift_per_chrom,
+        "relative_mad_per_chrom": relative_mad_per_chrom,
+        "n_consistent_shift_chroms": n_consistent,
+        "has_consistent_shift": has_consistent_shift,
+    }
 
 
 def _alternate_key(active: str) -> str:
@@ -532,6 +659,7 @@ def _pair_to_dict(c: PairCompatibility) -> dict[str, Any]:
             if c.alternate_key_fraction_of_min is None
             else float(c.alternate_key_fraction_of_min)
         ),
+        "build_shift_signature": c.build_shift_signature,
         "classification": c.classification,
         "classification_evidence": c.classification_evidence,
     }
