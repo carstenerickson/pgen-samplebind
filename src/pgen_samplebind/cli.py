@@ -163,6 +163,17 @@ def inspect_command(input_path: Path, json_output: bool) -> None:
     default=2048,
     help="Variants per pgenlib read block (default: 2048).",
 )
+@click.option(
+    "--preflight-policy",
+    type=click.Choice(["warn", "strict", "off"]),
+    default="warn",
+    help="How to react when the preflight gate fires (chr:pos / id intersection "
+    "below the compatibility threshold against canonical): 'warn' (default) "
+    "emits a stderr warning and continues; 'strict' raises ValidationError "
+    "(exit 1); 'off' computes the preflight JSON but never warns or fails. "
+    "The preflight JSON is always written to <prefix>.preflight.json — see "
+    "its 'classification' fields for the failure-mode label.",
+)
 def merge_command(
     inputs: tuple[Path, ...],
     target_paths: tuple[Path, ...],
@@ -186,6 +197,7 @@ def merge_command(
     report_json_include_rows: bool,
     quiet: bool,
     block_size: int,
+    preflight_policy: str,
 ) -> None:
     """Bind inputs into one output PFILE."""
     policy = MergePolicy(
@@ -202,6 +214,7 @@ def merge_command(
         id_column=id_column,
         block_size=block_size,
         report_json_include_rows=report_json_include_rows,
+        preflight_policy=preflight_policy,  # type: ignore[arg-type]
     )
     run_merge(
         input_paths=inputs,
@@ -289,6 +302,25 @@ def merge_command(
     default=False,
     help="Include per-variant rows in --report-json output.",
 )
+@click.option(
+    "--preflight-policy",
+    type=click.Choice(["warn", "strict", "off"]),
+    default="warn",
+    help="How to react when the preflight gate fires (same semantics as on "
+    "`merge`). Validate has no output prefix, so the JSON is only written "
+    "when --preflight-json PATH is also passed; the gate evaluator and "
+    "stderr/exit behavior run regardless. Use validate + --preflight-policy "
+    "strict as a cheap CI dry-run before a long merge.",
+)
+@click.option(
+    "--preflight-json",
+    "preflight_json_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the preflight schema-v1 JSON to PATH. Unlike `merge` (which "
+    "always writes `<prefix>.preflight.json`), validate has no output prefix "
+    "to derive from, so emission is opt-in via this flag.",
+)
 @click.option("--quiet", is_flag=True, default=False)
 def validate_command(
     inputs: tuple[Path, ...],
@@ -309,6 +341,8 @@ def validate_command(
     report_path: Path | None,
     report_json_path: Path | None,
     report_json_include_rows: bool,
+    preflight_policy: str,
+    preflight_json_path: Path | None,
     quiet: bool,
 ) -> None:
     """Check alignment of inputs without writing output. Exits 0 if alignment
@@ -339,6 +373,7 @@ def validate_command(
         no_population_column=no_population_column,
         id_column=id_column,
         report_json_include_rows=report_json_include_rows,
+        preflight_policy=preflight_policy,  # type: ignore[arg-type]
     )
     run_validate(
         input_paths=inputs,
@@ -349,6 +384,7 @@ def validate_command(
         relabel_from=relabel_from,
         relabel_input_col=relabel_input_col,
         relabel_output_col=relabel_output_col,
+        preflight_json_path=preflight_json_path,
     )
 
 
