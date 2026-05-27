@@ -200,12 +200,18 @@ def compute_preflight(
 
 
 # Labels that the gate treats as actionable failures. `compatible` is
-# the happy path; `empty_input` is its own diagnostic the merge will
-# surface anyway via downstream validation. Build/key-space/disjoint
-# all silently produce near-empty merges today — they are the failure
-# shapes the gate exists to catch.
+# the happy path. The four failure labels all produce near-empty merges
+# without preflight intervention — `empty_input` (one side has zero
+# post-filter variants) was previously excluded under the assumption
+# that downstream alignment gates (a)-(d) would catch it, but they
+# don't: gate (a) computes 0 extras against an empty other (silent),
+# gate (b) is guarded by `if intersection_size > 0`, gate (c) only
+# fires under --target, and gate (d) iterates the empty input.
+# Including empty_input here means `--preflight-policy strict` actually
+# protects against the most extreme near-empty-merge shape. Closes
+# review finding #B6.
 GATE_FAILURE_LABELS: frozenset[str] = frozenset(
-    {"build_mismatch", "key_space_mismatch", "disjoint_panels"}
+    {"build_mismatch", "key_space_mismatch", "disjoint_panels", "empty_input"}
 )
 
 
@@ -326,8 +332,20 @@ _CLASSIFICATION_HINTS: dict[str, str] = {
         "--variant-key value (chr_pos / id)."
     ),
     "disjoint_panels": (
-        "Chromosome coverage differs between inputs. Verify you're "
-        "merging the panels you intended."
+        "Inputs appear to come from unrelated cohorts. Either chromosome "
+        "coverage differs between inputs, or the chrom sets coincide but "
+        "coordinates don't (random positions, not a uniform shift). Run "
+        "`pgen-samplebind hash` on each input to verify panel identity; "
+        "if both inputs SHOULD be related, suspect a coordinate-build "
+        "mismatch on too few variants to detect (try liftover with "
+        "CrossMap or Picard LiftoverVcf)."
+    ),
+    "empty_input": (
+        "One side has zero post-filter variants. Common causes: input "
+        "contains only multi-allelic / non-SNP rows (filtered by the "
+        "biallelic-SNP gate), upstream filter emitted an empty .pvar, "
+        "or `--include-chrom` excluded everything. Verify the input with "
+        "`pgen-samplebind inspect`."
     ),
 }
 
@@ -359,14 +377,17 @@ def classify_pair(pair: PairCompatibility) -> tuple[str, dict[str, Any]]:
       - `"build_mismatch"`: active-key fraction low, alternate-key
         comparable, every shared chromosome has canonical_size>0,
         other_size>0, intersection=0, with symmetric chrom presence on
-        both sides, *and* the per-chrom position-shift signature shows
-        a consistent shift (build_shift_signature.has_consistent_shift
-        == True). The hg19/hg38 fingerprint: positions on each chrom
-        differ by a near-uniform delta, the signature of a coordinate
-        remap. Two unrelated panels with the same chrom set but random
-        independent positions fail the shift-consistency check and
-        instead fall through to `disjoint_panels` — the label split
-        that previously required a caveat is now sharpened.
+        both sides, AND either (a) the per-chrom position-shift
+        signature shows a consistent shift (has_consistent_shift=True
+        — the hg19/hg38 fingerprint on panels large enough to compute
+        the signature), OR (b) the signature couldn't be computed
+        because no shared chrom has >=5 variants on both sides (small
+        targeted panel — conservatively assume build mismatch since
+        liftover is a cheap remediation to try and the alternative
+        label would steer the user away from the real fix). Two
+        unrelated panels with same chrom set, random independent
+        positions, AND sufficient density compute a non-consistent
+        signature and fall through to `disjoint_panels`.
       - `"disjoint_panels"`: active-key fraction low with either
         asymmetric chrom presence (chroms exist in one side but not
         the other) OR symmetric chroms with zero overlap but no
@@ -411,10 +432,16 @@ def classify_pair(pair: PairCompatibility) -> tuple[str, dict[str, Any]]:
 
     # Empty-input check first — protects downstream ratios from being
     # mistaken for "compatible" when one side actually has no variants.
-    if pair.n_variants == 0 or (
-        pair.alternate_key_canonical_size is not None
-        and pair.alternate_key_canonical_size == 0
-    ):
+    # `canonical_active_size` is derived from per_chrom (which always
+    # covers the active key) rather than `alternate_key_canonical_size`:
+    # a canonical .pvar with all-placeholder IDs ('.', 'NA', etc.) under
+    # the default --variant-key chr_pos has alternate_key_canonical_size=0
+    # but real chr_pos data — keying the empty_input guard on the
+    # alternate key would mis-label every such input as empty. Closes
+    # review finding #C1.
+    canonical_active_size = sum(int(pc.canonical_size) for pc in pair.per_chrom)
+    evidence["canonical_active_size"] = canonical_active_size
+    if pair.n_variants == 0 or canonical_active_size == 0:
         return "empty_input", evidence
 
     if active_frac >= _COMPATIBLE_MIN_FRACTION:
@@ -448,9 +475,23 @@ def classify_pair(pair: PairCompatibility) -> tuple[str, dict[str, Any]]:
             evidence["build_shift_n_chroms_evaluated"] = len(sig["chroms_evaluated"])
             evidence["build_shift_n_consistent"] = sig["n_consistent_shift_chroms"]
             evidence["build_shift_has_consistent_shift"] = sig["has_consistent_shift"]
-        if sig is not None and sig["has_consistent_shift"]:
+            if sig["has_consistent_shift"]:
+                return "build_mismatch", evidence
+            # Same-chrom no-overlap WITH signal but no consistent shift
+            # → genuinely disjoint, fall through.
+        else:
+            # No shift signal could be computed (panel too small for
+            # >=5 variants/chrom on every shared chrom). Conservatively
+            # label as build_mismatch: the symmetric-zero-overlap shape
+            # is the hg19/hg38 fingerprint, and recommending a liftover
+            # check costs the user nothing if it turns out to be a
+            # genuinely-disjoint small panel. The pre-sharpener default
+            # for this case was build_mismatch — preserving it ensures
+            # small targeted panels (e.g., 30-variant pharmacogenomic
+            # panels) don't lose the liftover remediation hint. Closes
+            # review finding #B1.
+            evidence["build_shift_signature_available"] = False
             return "build_mismatch", evidence
-        # Same-chrom no-overlap without a consistent shift → disjoint.
 
     # 3. Otherwise (asymmetric chroms OR same-chrom-no-shift): disjoint.
     return "disjoint_panels", evidence

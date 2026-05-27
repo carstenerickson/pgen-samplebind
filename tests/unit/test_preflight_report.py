@@ -295,6 +295,131 @@ def test_build_shift_sharpener_uniform_shift_keeps_build_mismatch_label(
         )
 
 
+def test_placeholder_canonical_ids_chr_pos_classifies_compatible(tmp_path: Path) -> None:
+    """Regression for review finding #C1: canonical .pvar with all-placeholder
+    IDs ('.', 'NA', etc.) under the default --variant-key chr_pos must NOT
+    be mis-labeled as `empty_input`. The chr_pos data is intact — placeholder
+    IDs only affect the alternate-key view, which the empty_input guard
+    must not key on.
+    """
+    import pandas as pd
+
+    a = _panel(tmp_path, "a", variant_seed=11)
+    b = _panel(tmp_path, "b", variant_seed=11)  # same seed → identical chr_pos
+
+    # Strip canonical's IDs to all-'.' (the most-common real-world placeholder).
+    pvar_path = Path(str(a) + ".pvar")
+    df = pd.read_csv(pvar_path, sep="\t")
+    df["ID"] = "."
+    df.to_csv(pvar_path, sep="\t", index=False, lineterminator="\n")
+
+    descriptors = [_descriptor(a), _descriptor(b)]
+    report = compute_preflight(
+        descriptors, MergePolicy(), tool_version="test", command="merge"
+    )
+    pair = report.comparisons[0]
+    # Active-key (chr_pos) data is intact → compatible. Pre-fix this was
+    # `empty_input` because alternate_key_canonical_size==0 tripped the guard.
+    assert pair.classification == "compatible"
+    assert pair.alternate_key_canonical_size == 0  # placeholders filtered
+    # Evidence carries the active-key canonical size used by the new guard.
+    assert pair.classification_evidence["canonical_active_size"] > 0
+
+
+def test_empty_other_input_classifies_empty_input_and_is_gated(tmp_path: Path) -> None:
+    """Regression for review finding #B6: an `other` input with zero post-
+    filter variants must classify as `empty_input` AND must trip the gate
+    under --preflight-policy strict. Pre-fix, empty_input was excluded
+    from GATE_FAILURE_LABELS, so strict-mode users got no protection.
+    """
+    import pandas as pd
+
+    a = _panel(tmp_path, "a", variant_seed=11)
+    b = _panel(tmp_path, "b", variant_seed=22)
+
+    # Wipe other's .pvar to header-only (zero variant rows). The biallelic-
+    # SNP filter would catch a multi-allelic-only panel too; we use a
+    # header-only file for test determinism.
+    pvar_path = Path(str(b) + ".pvar")
+    df = pd.read_csv(pvar_path, sep="\t")
+    df.iloc[0:0].to_csv(pvar_path, sep="\t", index=False, lineterminator="\n")
+
+    descriptors = [_descriptor(a), _descriptor(b)]
+    strict_policy = MergePolicy(preflight_policy="strict")
+    report = compute_preflight(
+        descriptors, strict_policy, tool_version="test", command="merge"
+    )
+    assert report.comparisons[0].classification == "empty_input"
+
+    gated = evaluate_gate(report, strict_policy)
+    assert gated.gate["would_trigger"] is True
+    assert gated.gate["triggered"] is True
+    assert gated.gate["action"] == "error"
+    assert gated.gate["failing_inputs"][0]["classification"] == "empty_input"
+
+
+def test_small_panel_build_mismatch_keeps_build_mismatch_label(tmp_path: Path) -> None:
+    """Regression for review finding #B1: a small targeted panel (~3
+    variants/chrom — below `_BUILD_SHIFT_MIN_VARIANTS_PER_CHROM = 5`)
+    with symmetric chroms, zero coord overlap, and a hg19/hg38-style
+    shift must still classify as `build_mismatch`. Pre-fix, the
+    signature couldn't be computed (no qualifying chroms) and the
+    classifier demoted to `disjoint_panels`, hiding the liftover hint.
+    """
+    import shutil
+
+    import pandas as pd
+
+    # Tiny panel: 3 chroms × 3 variants = 9 total. Each chrom has only
+    # 3 variants, well under the 5-variant signature threshold.
+    spec = SyntheticPanelSpec(
+        n_samples=4,
+        n_variants=9,
+        n_populations=1,
+        chromosomes=(1, 2, 3),
+        variant_seed=701,
+        sample_seed=702,
+    )
+    a = synthesize_pfile(spec, tmp_path / "small_a").path
+
+    # Build b as a uniformly-shifted copy of a's .pvar (+1.5M, all chroms).
+    b_prefix = tmp_path / "small_b"
+    shutil.copy(Path(str(a) + ".pgen"), Path(str(b_prefix) + ".pgen"))
+    shutil.copy(Path(str(a) + ".psam"), Path(str(b_prefix) + ".psam"))
+    pvar = pd.read_csv(Path(str(a) + ".pvar"), sep="\t")
+    pvar["POS"] = pvar["POS"] + 1_500_000
+    pvar["ID"] = pvar.apply(lambda r: f"chr{r['#CHROM']}:{r['POS']}", axis=1)
+    pvar.to_csv(Path(str(b_prefix) + ".pvar"), sep="\t", index=False, lineterminator="\n")
+
+    descriptors = [_descriptor(a), _descriptor(b_prefix)]
+    report = compute_preflight(
+        descriptors, MergePolicy(), tool_version="test", command="merge"
+    )
+    pair = report.comparisons[0]
+    # Below-threshold panel: signature is None, but conservative fallback
+    # preserves the build_mismatch label so the user sees the liftover hint.
+    assert pair.classification == "build_mismatch"
+    assert pair.build_shift_signature is None
+    assert pair.classification_evidence["build_shift_signature_available"] is False
+
+
+def test_disjoint_panels_hint_acknowledges_both_subshapes(tmp_path: Path) -> None:
+    """Regression for review finding #B2: the disjoint_panels hint must
+    acknowledge BOTH sub-shapes the label now covers (asymmetric chroms
+    OR symmetric chroms without consistent shift). The old hint said
+    'Chromosome coverage differs' which is wrong for the symmetric case.
+    """
+    from pgen_samplebind.preflight import _CLASSIFICATION_HINTS
+
+    hint = _CLASSIFICATION_HINTS["disjoint_panels"]
+    # Both sub-shape descriptions must appear so users in either case
+    # see something true about their situation.
+    assert "coverage differs" in hint.lower() or "different" in hint.lower()
+    assert "coordinates don't" in hint or "coordinate" in hint
+    # And the cross-reference to hash for panel identity should be there.
+    assert "hash" in hint
+
+
 def test_build_shift_signature_absent_when_no_qualifying_chroms(tmp_path: Path) -> None:
     """When the pair is compatible (high intersection), no chrom has
     zero-overlap, so the signature isn't computed — `None` rather than
