@@ -32,7 +32,6 @@ from .modifiers import (
 )
 from .synthesize import SyntheticPanelSpec, synthesize_pfile
 
-
 # Single shared shape across the corpus so per-fixture differences are
 # isolated to the deliberate failure-mode mutation, not panel size.
 _CORPUS_SHAPE = SyntheticPanelSpec(

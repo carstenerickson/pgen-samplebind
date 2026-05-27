@@ -9,8 +9,6 @@ guards against silent regressions while those follow-ups land.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from pgen_samplebind.formats import prepared_input

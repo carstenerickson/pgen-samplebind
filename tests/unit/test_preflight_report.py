@@ -17,9 +17,6 @@ import pytest
 from pgen_samplebind.errors import InvariantViolation
 from pgen_samplebind.preflight import (
     PREFLIGHT_SCHEMA_VERSION,
-    PairCompatibility,
-    PreflightReport,
-    classify_pair,
     compute_preflight,
     evaluate_gate,
     write_preflight_json,
@@ -370,7 +367,7 @@ def test_small_panel_build_mismatch_keeps_build_mismatch_label(tmp_path: Path) -
 
     import pandas as pd
 
-    # Tiny panel: 3 chroms × 3 variants = 9 total. Each chrom has only
+    # Tiny panel: 3 chroms x 3 variants = 9 total. Each chrom has only
     # 3 variants, well under the 5-variant signature threshold.
     spec = SyntheticPanelSpec(
         n_samples=4,

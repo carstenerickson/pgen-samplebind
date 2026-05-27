@@ -29,7 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .errors import IOFailure, InvariantViolation
+from .errors import InvariantViolation, IOFailure
 from .pvar import read_pvar
 from .types import InputDescriptor, MergePolicy
 
@@ -130,6 +130,13 @@ def compute_preflight(
     canonical_by_chrom = _keys_by_chrom(canonical_df, policy.variant_key)
     alternate_key = _alternate_key(policy.variant_key)
     canonical_alt_keys = _keys_for(canonical_df, alternate_key)
+    # Extract canonical chrom/pos numpy arrays once (used by every
+    # _compute_build_shift_signature call in the loop). At 84M-variant
+    # canonical scale these are ~336 MB each; materializing them once
+    # avoids re-pulling per non-canonical input. For N=2 merges this is
+    # a wash, but N>2 (multi-input cohort assembly) sees real wins.
+    canonical_chrom_arr = canonical_df["chrom"].to_numpy()
+    canonical_pos_arr = canonical_df["pos"].to_numpy()
 
     comparisons: list[PairCompatibility] = []
     for i, desc in enumerate(descriptors[1:], start=1):
@@ -162,8 +169,15 @@ def compute_preflight(
         # Build-shift signature: only computed when the per-chrom shape
         # could plausibly indicate a build mismatch (shared chroms with
         # zero coord overlap). Cheap when nothing qualifies — early-out
-        # inside the helper.
-        build_shift = _compute_build_shift_signature(canonical_df, other_df, per_chrom)
+        # inside the helper. Canonical arrays are hoisted out of the
+        # loop (see above); other arrays are per-iteration anyway.
+        build_shift = _compute_build_shift_signature(
+            canonical_chrom_arr,
+            canonical_pos_arr,
+            other_df["chrom"].to_numpy(),
+            other_df["pos"].to_numpy(),
+            per_chrom,
+        )
 
         pair = PairCompatibility(
             input_index=i,
@@ -215,7 +229,7 @@ GATE_FAILURE_LABELS: frozenset[str] = frozenset(
 )
 
 
-def evaluate_gate(report: "PreflightReport", policy: MergePolicy) -> "PreflightReport":
+def evaluate_gate(report: PreflightReport, policy: MergePolicy) -> PreflightReport:
     """Decide what action the policy mandates given the report's classifications.
 
     Returns a new `PreflightReport` with `gate` populated:
@@ -260,9 +274,7 @@ def evaluate_gate(report: "PreflightReport", policy: MergePolicy) -> "PreflightR
     ]
     would_trigger = bool(failing)
 
-    if not would_trigger:
-        action = "none"
-    elif policy.preflight_policy == "off":
+    if not would_trigger or policy.preflight_policy == "off":
         action = "none"
     elif policy.preflight_policy == "strict":
         action = "error"
@@ -284,7 +296,7 @@ def evaluate_gate(report: "PreflightReport", policy: MergePolicy) -> "PreflightR
     return replace(report, gate=new_gate)
 
 
-def format_gate_message(report: "PreflightReport") -> str:
+def format_gate_message(report: PreflightReport) -> str:
     """Render a human-readable one-paragraph summary of why the gate fired.
 
     Used by the CLI to format both the stderr warning (under `warn`) and
@@ -519,8 +531,10 @@ _BUILD_SHIFT_MIN_FRACTION_CHROMS = 0.5  # at least half of evaluated chroms
 
 
 def _compute_build_shift_signature(
-    canonical_df: pd.DataFrame,
-    other_df: pd.DataFrame,
+    canonical_chrom: np.ndarray[Any, Any],
+    canonical_pos: np.ndarray[Any, Any],
+    other_chrom: np.ndarray[Any, Any],
+    other_pos: np.ndarray[Any, Any],
     per_chrom: tuple[PerChromCompat, ...],
 ) -> dict[str, Any] | None:
     """Per-chrom rank-aligned position-shift summary.
@@ -538,8 +552,12 @@ def _compute_build_shift_signature(
         of evaluated chroms are consistent — the classifier's
         build-mismatch trigger)
 
-    Pure helper; takes already-read pvar DataFrames so the classifier
-    can stay a pure function on `PairCompatibility`.
+    Pure helper. Takes pre-extracted numpy arrays for both sides (not
+    pandas DataFrames) so the canonical arrays can be materialized once
+    by `compute_preflight` and reused across every non-canonical input
+    in an N-way merge — at 84M-variant canonical scale that's a
+    ~336 MB array we avoid re-extracting from the pandas Series on each
+    iteration.
     """
     qualifying: list[int] = [
         int(pc.chrom)
@@ -555,13 +573,11 @@ def _compute_build_shift_signature(
     relative_mad_per_chrom: dict[str, float] = {}
     n_consistent = 0
 
-    # Pull chrom→positions arrays once per input. The .to_numpy() avoids
-    # per-iteration pandas indexing and is cheap relative to the read_pvar
-    # call that already ran upstream.
-    can_chrom = canonical_df["chrom"].to_numpy()
-    can_pos = canonical_df["pos"].to_numpy()
-    oth_chrom = other_df["chrom"].to_numpy()
-    oth_pos = other_df["pos"].to_numpy()
+    # Local aliases to keep the loop body readable.
+    can_chrom = canonical_chrom
+    can_pos = canonical_pos
+    oth_chrom = other_chrom
+    oth_pos = other_pos
 
     for chrom in qualifying:
         can_sorted = np.sort(can_pos[can_chrom == chrom])
@@ -707,13 +723,13 @@ def _pair_to_dict(c: PairCompatibility) -> dict[str, Any]:
 
 
 __all__ = (
-    "PREFLIGHT_SCHEMA_VERSION",
     "GATE_FAILURE_LABELS",
-    "PerChromCompat",
+    "PREFLIGHT_SCHEMA_VERSION",
     "PairCompatibility",
+    "PerChromCompat",
     "PreflightReport",
-    "compute_preflight",
     "classify_pair",
+    "compute_preflight",
     "evaluate_gate",
     "format_gate_message",
     "write_preflight_json",
