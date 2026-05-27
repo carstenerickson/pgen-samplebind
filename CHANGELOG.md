@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-27
+
+### Added
+
+- **Preflight input-compatibility gate** ([#12](https://github.com/carstenerickson/pgen-samplebind/issues/12)). `merge` always emits `<prefix>.preflight.json` (schema v1) summarizing how compatible the canonical input is with each other input — per-pair chr_pos and id intersection, per-chrom breakdown, per-chrom position-shift signature, and a classification label drawn from {`compatible`, `build_mismatch`, `key_space_mismatch`, `disjoint_panels`, `empty_input`}. New `--preflight-policy {warn,strict,off}` flag (default `warn`) on both `merge` and `validate` decides whether to emit a stderr warning + continue, raise `ValidationError` before pass 2, or compute the JSON silently. `validate` gets opt-in JSON emission via `--preflight-json PATH` so it can serve as a cheap CI dry-run before a long merge. The full design (schema, classifier rules, gate semantics, build-shift signature, post-review fixes) is in the PR #13 commit history.
+
 ### Performance
 
 - **`merge` throughput drops ~38% from v0.4.0** on the 2 × 100K-variant CI perf fixture (70.84M → 43.8M genotypes/sec) due to the always-on preflight feature added in PR #13: an extra `.pvar` read per input plus Python-level key-set construction in `_keys_for(chr_pos)` before pass 2. The cost is dominated by tuple/set construction over the variant key, not by the build-shift signature or the JSON write. `perf_baseline.json` recalibrated to 40M g/s (gate at 32M g/s = 80% of baseline, same 27%-regression-headroom envelope as the v0.3.1 calibration). Follow-up: thread `merge_inputs`'s pvar cache through to `compute_preflight` (currently re-read; the kwarg-based API is already in place for `validate` and recovers most of the gap there — see preflight.py's docstring).
