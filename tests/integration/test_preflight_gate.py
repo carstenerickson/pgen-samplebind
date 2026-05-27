@@ -33,8 +33,10 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, CorpusPair]:
 
 
 def _compute(pair: CorpusPair, *, preflight_policy: str, variant_key: str = "chr_pos"):
-    with prepared_input(pair.canonical, is_target=False, include_chrom=tuple(range(1, 23))) as a, \
-         prepared_input(pair.other, is_target=False, include_chrom=tuple(range(1, 23))) as b:
+    with (
+        prepared_input(pair.canonical, is_target=False, include_chrom=tuple(range(1, 23))) as a,
+        prepared_input(pair.other, is_target=False, include_chrom=tuple(range(1, 23))) as b,
+    ):
         policy = MergePolicy(
             variant_key=variant_key,  # type: ignore[arg-type]
             preflight_policy=preflight_policy,  # type: ignore[arg-type]
@@ -99,9 +101,7 @@ def test_gate_key_space_mismatch_triggers_under_wrong_key(
     report_cp, _ = _compute(corpus["key_space_mismatch"], preflight_policy="warn")
     assert report_cp.gate["triggered"] is False
 
-    report_id, _ = _compute(
-        corpus["key_space_mismatch"], preflight_policy="warn", variant_key="id"
-    )
+    report_id, _ = _compute(corpus["key_space_mismatch"], preflight_policy="warn", variant_key="id")
     assert report_id.gate["triggered"] is True
     assert report_id.gate["failing_inputs"][0]["classification"] == "key_space_mismatch"
 

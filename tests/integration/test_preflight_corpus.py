@@ -29,8 +29,10 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, CorpusPair]:
 
 def _run_preflight(pair: CorpusPair, *, variant_key: str = "chr_pos"):
     """Open both prefixes via the real format-detection path and run preflight."""
-    with prepared_input(pair.canonical, is_target=False, include_chrom=tuple(range(1, 23))) as a, \
-         prepared_input(pair.other, is_target=False, include_chrom=tuple(range(1, 23))) as b:
+    with (
+        prepared_input(pair.canonical, is_target=False, include_chrom=tuple(range(1, 23))) as a,
+        prepared_input(pair.other, is_target=False, include_chrom=tuple(range(1, 23))) as b,
+    ):
         policy = MergePolicy(variant_key=variant_key)  # type: ignore[arg-type]
         return compute_preflight([a, b], policy, tool_version="test", command="merge")
 

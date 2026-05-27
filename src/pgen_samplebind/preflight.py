@@ -340,8 +340,7 @@ _CLASSIFICATION_HINTS: dict[str, str] = {
         "build (CrossMap or Picard LiftoverVcf) and re-run."
     ),
     "key_space_mismatch": (
-        "The non-active variant key matches well. Try the other "
-        "--variant-key value (chr_pos / id)."
+        "The non-active variant key matches well. Try the other --variant-key value (chr_pos / id)."
     ),
     "disjoint_panels": (
         "Inputs appear to come from unrelated cohorts. Either chromosome "
@@ -416,9 +415,7 @@ def classify_pair(pair: PairCompatibility) -> tuple[str, dict[str, Any]]:
     alt_frac = pair.alternate_key_fraction_of_min or 0.0
     n_canonical_chroms = sum(1 for pc in pair.per_chrom if pc.canonical_size > 0)
     n_other_chroms = sum(1 for pc in pair.per_chrom if pc.other_size > 0)
-    n_shared_chroms = sum(
-        1 for pc in pair.per_chrom if pc.canonical_size > 0 and pc.other_size > 0
-    )
+    n_shared_chroms = sum(1 for pc in pair.per_chrom if pc.canonical_size > 0 and pc.other_size > 0)
     n_shared_chroms_zero_overlap = sum(
         1
         for pc in pair.per_chrom
@@ -633,11 +630,7 @@ def _keys_for(df: pd.DataFrame, variant_key: str) -> set[Any]:
     if variant_key == "chr_pos":
         return set(zip(df["chrom"].tolist(), df["pos"].tolist(), strict=True))
     if variant_key == "id":
-        return {
-            vid
-            for vid in df["id"].astype(str).tolist()
-            if vid not in _PLACEHOLDER_VARIANT_IDS
-        }
+        return {vid for vid in df["id"].astype(str).tolist() if vid not in _PLACEHOLDER_VARIANT_IDS}
     raise InvariantViolation(f"unknown variant_key: {variant_key!r}")
 
 

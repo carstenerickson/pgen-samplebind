@@ -90,16 +90,12 @@ def test_validate_warn_emits_stderr_continues(
     # we just check the preflight warning was emitted.
 
 
-def test_validate_off_suppresses_gate(
-    corpus: dict[str, CorpusPair], tmp_path: Path
-) -> None:
+def test_validate_off_suppresses_gate(corpus: dict[str, CorpusPair], tmp_path: Path) -> None:
     """`off` policy: no stderr WARNING, no exception from the preflight
     gate. Downstream alignment behavior unchanged."""
     pair = corpus["build_mismatch"]
     out_json = tmp_path / "pf.json"
-    result = _run_validate_cli(
-        pair.canonical, pair.other, policy="off", preflight_json=out_json
-    )
+    result = _run_validate_cli(pair.canonical, pair.other, policy="off", preflight_json=out_json)
     assert "WARNING: Preflight gate triggered" not in result.output
     # The JSON file is still written (always-emit semantics) and its
     # `gate.would_trigger` still reflects the classification — only
@@ -125,21 +121,16 @@ def test_validate_preflight_json_only_when_flagged(
     assert result.exit_code == 0
     files_after = set(tmp_path.iterdir())
     assert files_before == files_after, (
-        f"validate created unexpected files without --preflight-json: "
-        f"{files_after - files_before}"
+        f"validate created unexpected files without --preflight-json: {files_after - files_before}"
     )
 
 
-def test_validate_preflight_json_schema_v1(
-    corpus: dict[str, CorpusPair], tmp_path: Path
-) -> None:
+def test_validate_preflight_json_schema_v1(corpus: dict[str, CorpusPair], tmp_path: Path) -> None:
     """The validate-emitted JSON conforms to the same schema v1 envelope
     that merge writes, with `command="validate"`."""
     pair = corpus["compatible"]
     out_json = tmp_path / "pf.json"
-    result = _run_validate_cli(
-        pair.canonical, pair.other, policy="warn", preflight_json=out_json
-    )
+    result = _run_validate_cli(pair.canonical, pair.other, policy="warn", preflight_json=out_json)
     assert result.exit_code == 0, result.output
     payload = json.loads(out_json.read_text())
     assert payload["schema_version"] == 1

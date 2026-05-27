@@ -63,9 +63,7 @@ def test_shift_positions_dict_covering_all_chroms_works(
         assert int(p_out) - int(p_in) == expected[int(c_in)]
 
 
-def test_shift_positions_int_form_unchanged(
-    multi_chrom_panel: Path, tmp_path: Path
-) -> None:
+def test_shift_positions_int_form_unchanged(multi_chrom_panel: Path, tmp_path: Path) -> None:
     """The int form (uniform shift) still applies to every row."""
     out = tmp_path / "out"
     shift_positions(multi_chrom_panel, out, per_chrom_offset=500_000)

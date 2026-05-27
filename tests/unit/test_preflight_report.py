@@ -54,9 +54,7 @@ def test_compute_preflight_schema_v1_shape(tmp_path: Path) -> None:
     b = _panel(tmp_path, "b", variant_seed=11)  # same variant_seed → identical variants
 
     descriptors = [_descriptor(a), _descriptor(b)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
 
     assert report.schema_version == PREFLIGHT_SCHEMA_VERSION == 1
     assert report.tool == "pgen-samplebind"
@@ -100,9 +98,7 @@ def test_placeholder_ids_dont_inflate_alt_key_fraction(tmp_path: Path) -> None:
         df.to_csv(pvar_path, sep="\t", index=False, lineterminator="\n")
 
     descriptors = [_descriptor(a), _descriptor(b)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     pair = report.comparisons[0]
     # Placeholder IDs filtered → alternate-key intersection is 0 (no
     # real IDs on either side), so the lift can't manufacture a
@@ -118,16 +114,12 @@ def test_evaluate_gate_rejects_unclassified_comparisons(tmp_path: Path) -> None:
     a = _panel(tmp_path, "a", variant_seed=11)
     b = _panel(tmp_path, "b", variant_seed=11)
     descriptors = [_descriptor(a), _descriptor(b)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     # Strip the classification from the first comparison to simulate a
     # caller that forgot to run classify_pair.
     from dataclasses import replace
 
-    unclassified = replace(
-        report.comparisons[0], classification=None, classification_evidence=None
-    )
+    unclassified = replace(report.comparisons[0], classification=None, classification_evidence=None)
     broken_report = replace(report, comparisons=(unclassified,))
     with pytest.raises(InvariantViolation, match="un-classified"):
         evaluate_gate(broken_report, MergePolicy())
@@ -147,9 +139,7 @@ def test_compute_preflight_low_intersection_same_chroms(tmp_path: Path) -> None:
     b = _panel(tmp_path, "b", variant_seed=999)
 
     descriptors = [_descriptor(a), _descriptor(b)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
 
     pair = report.comparisons[0]
     # Random positions in a 1..100M space across 50 variants per panel: collisions vanishingly rare.
@@ -170,9 +160,7 @@ def test_compute_preflight_single_input(tmp_path: Path) -> None:
     """Canonical only → comparisons is empty but envelope is well-formed."""
     a = _panel(tmp_path, "a", variant_seed=11)
     descriptors = [_descriptor(a)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     assert report.comparisons == ()
     assert report.canonical["n_variants"] > 0
 
@@ -274,9 +262,7 @@ def test_build_shift_sharpener_uniform_shift_keeps_build_mismatch_label(
     pvar.to_csv(Path(str(b_prefix) + ".pvar"), sep="\t", index=False, lineterminator="\n")
 
     descriptors = [_descriptor(a), _descriptor(b_prefix)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     pair = report.comparisons[0]
     assert pair.classification == "build_mismatch"
     sig = pair.build_shift_signature
@@ -311,9 +297,7 @@ def test_placeholder_canonical_ids_chr_pos_classifies_compatible(tmp_path: Path)
     df.to_csv(pvar_path, sep="\t", index=False, lineterminator="\n")
 
     descriptors = [_descriptor(a), _descriptor(b)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     pair = report.comparisons[0]
     # Active-key (chr_pos) data is intact → compatible. Pre-fix this was
     # `empty_input` because alternate_key_canonical_size==0 tripped the guard.
@@ -343,9 +327,7 @@ def test_empty_other_input_classifies_empty_input_and_is_gated(tmp_path: Path) -
 
     descriptors = [_descriptor(a), _descriptor(b)]
     strict_policy = MergePolicy(preflight_policy="strict")
-    report = compute_preflight(
-        descriptors, strict_policy, tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, strict_policy, tool_version="test", command="merge")
     assert report.comparisons[0].classification == "empty_input"
 
     gated = evaluate_gate(report, strict_policy)
@@ -389,9 +371,7 @@ def test_small_panel_build_mismatch_keeps_build_mismatch_label(tmp_path: Path) -
     pvar.to_csv(Path(str(b_prefix) + ".pvar"), sep="\t", index=False, lineterminator="\n")
 
     descriptors = [_descriptor(a), _descriptor(b_prefix)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     pair = report.comparisons[0]
     # Below-threshold panel: signature is None, but conservative fallback
     # preserves the build_mismatch label so the user sees the liftover hint.
@@ -425,9 +405,7 @@ def test_build_shift_signature_absent_when_no_qualifying_chroms(tmp_path: Path) 
     a = _panel(tmp_path, "a", variant_seed=11)
     b = _panel(tmp_path, "b", variant_seed=11)
     descriptors = [_descriptor(a), _descriptor(b)]
-    report = compute_preflight(
-        descriptors, MergePolicy(), tool_version="test", command="merge"
-    )
+    report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
     pair = report.comparisons[0]
     assert pair.classification == "compatible"
     assert pair.build_shift_signature is None
