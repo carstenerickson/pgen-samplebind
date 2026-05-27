@@ -129,14 +129,19 @@ Inputs are PFILE/BFILE/EIGENSTRAT prefixes; format auto-detected from companion 
 | `--report PATH` | none | Per-variant action TSV (streamed; constant memory) |
 | `--report-json PATH` | none | Run-level summary JSON (~few KB; rows excluded by default) |
 | `--report-json-include-rows` | off | Include per-variant rows in JSON (buffered; warns at >100 MB predicted size) |
+| `--preflight-policy {warn\|strict\|off}` | `warn` | Pre-pass-1 input-compatibility gate. `warn` emits a stderr WARNING and continues; `strict` raises ValidationError (exit 1) before pass 2 runs; `off` writes the JSON but never warns or fails. See [Preflight gate](#preflight-gate) |
 | `--quiet` | off | Suppress the stdout summary block and the stderr progress bar |
 | `--block-size N` | `2048` | Variants per pgenlib read block |
+
+`merge` always writes a `<prefix>.preflight.json` (schema v1) describing per-input compatibility against the canonical: chr:pos intersection, per-chrom breakdown, per-chrom position-shift signature, alternate-key (id vs chr_pos) intersection, and a classification label per non-canonical input (`compatible` / `build_mismatch` / `key_space_mismatch` / `disjoint_panels` / `empty_input`). Workflow consumers may assert against the file directly — e.g. `jq '.comparisons[0].intersection_fraction_of_min'` or `jq '.gate.would_trigger == false'`. The `gate` block carries `triggered` (whether the policy acted), `would_trigger` (the classification-level signal independent of policy), `action`, `policy`, `threshold`, and `failing_inputs[]`.
 
 ### `validate` — check alignment without writing
 
 Same alignment / strand options as `merge`. No output written; reports go to stdout plus optional `--report` / `--report-json`. Exits 0 if alignment OK, 1 if any of the gates below fires.
 
 `--no-population-column`: skip the population-column requirement on input psams. Use when a user PFILE has only `[IID, SEX]` (e.g., a single-sample VCF intersected with a reference panel before fraposa OADP projection — populations are downstream classification output, not user input). Variant-alignment, strand-orientation, and IID-collision checks still run; population-aware report fields come out empty for inputs that lack the column. Mutually exclusive with `--population-column`.
+
+`--preflight-policy {warn|strict|off}`: same semantics as on `merge`. Validate has no output prefix to derive a default JSON path from, so emission is opt-in via `--preflight-json PATH`. The gate evaluator and stderr/exit behavior run regardless. Use `pgen-samplebind validate ... --preflight-policy strict` as a cheap CI dry-run before a long merge — same exit codes, same JSON schema (with `"command": "validate"`).
 
 ### `hash` — emit canonical variant-set hash
 
@@ -210,6 +215,28 @@ Format, sample count, variant count, populations, pseudohaploid mix, sex distrib
 
 For `merge`, gates (a)-(c) run between pass 1 (alignment) and pass 2 (genotype streaming) — failing fast saves the pass-2 wallclock for an alignment that wouldn't have validated.
 
+## Preflight gate
+
+Catches the silent-near-empty-merge failure mode (closes [#12](https://github.com/carstenerickson/pgen-samplebind/issues/12)): if the canonical and another input share almost no variants under the active `--variant-key`, the merge completes "successfully" with a tiny output and the failure only surfaces in a downstream consumer that expected substantial overlap. The preflight pass runs before pass 1, computes per-pair key-space intersection + per-chrom breakdown + per-chrom position-shift signature, and emits `<prefix>.preflight.json` (schema v1) on every `merge` run. `validate` runs the same check; JSON emission is opt-in via `--preflight-json PATH`.
+
+The classifier assigns one of five labels to each non-canonical input:
+
+| Label | Trigger | Likely cause / remediation |
+|---|---|---|
+| `compatible` | active-key intersection ≥ 50% of min(canonical, other) | Normal — no gate action. |
+| `build_mismatch` | symmetric chrom presence, zero coord overlap on shared chroms, **and** a consistent per-chrom position-shift signature (relative MAD < 0.1, magnitude ≥ 1 kbp, on ≥ 50% of evaluated chroms) | Coordinate-build mismatch (hg19 vs hg38 etc.) — positions on each chrom differ by a near-uniform delta. Liftover one side with [CrossMap](https://crossmap.readthedocs.io/) or [Picard LiftoverVcf](https://broadinstitute.github.io/picard/) and re-run. |
+| `key_space_mismatch` | active-key fraction low, **alternate**-key fraction substantially higher (lift ≥ 0.4) | The non-active variant key matches well. Try the other `--variant-key` value (e.g., `--variant-key id` for an rsID-keyed panel against a chr:pos target). |
+| `disjoint_panels` | active-key fraction low; either asymmetric chrom presence OR symmetric chroms without a consistent shift | Verify you're merging the panels you intended. Run `pgen-samplebind hash` on each input to check panel identity. |
+| `empty_input` | one side has zero post-filter variants | Upstream filter is too aggressive, or the input is genuinely empty. |
+
+`--preflight-policy`:
+
+- `warn` (default) — emits a stderr WARNING with each offending input's path, classification, and intersection fraction; the merge continues.
+- `strict` — raises ValidationError (exit 1, same category as gates (a)-(d)) before pass 2 runs. Under `merge`, also unlinks any stale `.pgen` / `.pvar` / `.psam` from a prior successful run at the same prefix, so workflow managers don't consume outputs that no longer match the inputs.
+- `off` — writes the JSON but never warns or fails. `gate.would_trigger` still carries the classification-level signal so CI pipelines that `jq '.gate.would_trigger'`-gate the file still see suppressed failures.
+
+The preflight does **not** flag allele-swap or strand-flip mismatches — those are handled by the existing alignment code (`REF_ALT_SWAP` / `STRAND_FLIP` actions) and produce a normal merge with the recoded genotypes, not a near-empty one.
+
 ## Exit codes
 
 Stable across versions; safe to script against.
@@ -265,6 +292,16 @@ Gate (b) fired. Three common causes:
 1. **Wrong panel pairing**: tiny intersection × normal drop rate computes as a high *fraction* of intersection. Run `pgen-samplebind hash` on each input — if the hashes differ unexpectedly, the panels aren't what you thought they were.
 2. **Different strand conventions**: cross-source merges where one source already strand-flipped at A/T+C/G sites.
 3. **Legitimate but high A/T+C/G fraction**: 1240k naturally has ~5-8% ambiguous; a panel restricted to ambiguous-only sites would push above 10%. Raise the threshold with `--validate-strand-fail-pct 20` if that's your case, or use `--trust-strand` for explicit pass-through (footgun warning: silently passes potentially-flipped genotypes).
+
+### Preflight gate triggered
+
+`merge` emits a stderr line like `WARNING: Preflight gate triggered against canonical <path> (variant_key=chr_pos):` (or raises ValidationError under `--preflight-policy strict`). The classification on each offending input tells you the failure shape — see [Preflight gate](#preflight-gate) for the full label table. The fastest triage path:
+
+1. Read `<prefix>.preflight.json` — `comparisons[].classification` gives the label per non-canonical input, and `comparisons[].classification_evidence` carries the numbers the classifier keyed on (active-key fraction, alternate-key fraction, shift-consistency verdict, per-chrom shape).
+2. If `build_mismatch`: positions on each chrom differ by a near-uniform delta. Inspect `comparisons[].build_shift_signature.median_shift_per_chrom` to see the per-chrom shifts. Liftover one side with [CrossMap](https://crossmap.readthedocs.io/) or [Picard LiftoverVcf](https://broadinstitute.github.io/picard/) and re-run. `pgen-samplebind` does **not** liftover for you — detection is local and cheap; liftover is its own project and gets owned by the dedicated tools.
+3. If `key_space_mismatch`: re-run with the other `--variant-key` value. Check `comparisons[].alternate_key_fraction_of_min` to confirm the other key would have matched.
+4. If `disjoint_panels`: `pgen-samplebind hash` each input to verify panel identity. The classifier covers both asymmetric-chrom and same-chrom-no-shift sub-shapes — `comparisons[].per_chrom` shows which.
+5. If you genuinely want to merge disjoint inputs (e.g., panels by chromosome that you intend to concatenate later), pass `--preflight-policy off` to suppress the gate. The JSON still records `gate.would_trigger=true` for the audit trail.
 
 ### Half-built output files after a failure
 
