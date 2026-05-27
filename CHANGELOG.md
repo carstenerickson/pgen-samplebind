@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (validate)
+
+- **Preflight on `validate`** (`--preflight-policy` + `--preflight-json PATH`). Validate now runs the same compatibility classifier + gate as `merge`, so `pgen-samplebind validate ... --preflight-policy strict` is a cheap CI dry-run before a long merge — same exit codes, same warnings, same JSON schema (with `"command": "validate"`). Unlike merge, JSON emission is opt-in via `--preflight-json PATH`: validate has no `-o` prefix to derive a default path from. The gate evaluator and stderr/exit behavior run regardless of whether JSON is written. Validate's stdout summary gains a one-line-per-comparison preflight block right after the inputs list. Implementation reuses the pvars validate already reads (no double-read at scale): `compute_preflight` now accepts an optional `pvars=` kwarg parallel to descriptors.
+
 ### Fixed (post-review)
 
 - **Preflight: placeholder variant IDs no longer collapse the alternate-key set.** `_keys_for(id)` now filters `{'.', '', '0', 'NA', 'nan', 'None'}` before forming the set, so a production .pvar with no real rsIDs (every row `.`) doesn't collapse to a single-element set on both sides — which previously inflated `alternate_key_fraction_of_min` to 1.0 and triggered a spurious `key_space_mismatch` classification on what was really a build mismatch. Closes review finding #1.

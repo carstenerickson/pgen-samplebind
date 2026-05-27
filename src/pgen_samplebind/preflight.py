@@ -96,19 +96,28 @@ def compute_preflight(
     *,
     tool_version: str,
     command: str,
+    pvars: list[pd.DataFrame] | None = None,
 ) -> PreflightReport:
-    """Build the preflight report by reading each input's .pvar and
-    computing key-space intersection against the canonical (index 0).
+    """Build the preflight report by computing key-space intersection of
+    each non-canonical input against the canonical (index 0).
 
-    Re-reads each .pvar — step 1 favors a clean module boundary over
-    sharing the pass-1 cache. A future commit can thread the cached
-    DataFrames through to avoid the double-read at 84M-variant scale.
+    If `pvars` is supplied, it must be parallel to `descriptors` (same
+    length, same order) and the reader skips the .pvar read entirely.
+    `validate` passes the pvars it already read at its step 7 to avoid
+    a double-read at 84M-variant scale; `merge` calls with `pvars=None`
+    today (merge_inputs reads pvars internally for its own pass and we
+    haven't yet plumbed that cache out).
     """
     if not descriptors:
         raise InvariantViolation("compute_preflight: no descriptors")
+    if pvars is not None and len(pvars) != len(descriptors):
+        raise InvariantViolation(
+            f"compute_preflight: pvars length {len(pvars)} != descriptors length "
+            f"{len(descriptors)} (callers must pass a list parallel to descriptors)"
+        )
 
     canonical_desc = descriptors[0]
-    canonical_df = read_pvar(canonical_desc.pvar_path)
+    canonical_df = pvars[0] if pvars is not None else read_pvar(canonical_desc.pvar_path)
     canonical_keys = _keys_for(canonical_df, policy.variant_key)
     canonical_by_chrom = _keys_by_chrom(canonical_df, policy.variant_key)
     alternate_key = _alternate_key(policy.variant_key)
@@ -116,7 +125,7 @@ def compute_preflight(
 
     comparisons: list[PairCompatibility] = []
     for i, desc in enumerate(descriptors[1:], start=1):
-        other_df = read_pvar(desc.pvar_path)
+        other_df = pvars[i] if pvars is not None else read_pvar(desc.pvar_path)
         other_keys = _keys_for(other_df, policy.variant_key)
         other_by_chrom = _keys_by_chrom(other_df, policy.variant_key)
 

@@ -22,6 +22,14 @@ from ..alignment import (
     emit_extras_warning,
     evaluate_pass1_gates,
 )
+from ..errors import ValidationError
+from ..preflight import (
+    PreflightReport,
+    compute_preflight,
+    evaluate_gate,
+    format_gate_message,
+    write_preflight_json,
+)
 from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
 from ..types import AlignmentSummary, InputDescriptor, MergeCounters, MergePolicy
 
@@ -35,6 +43,7 @@ def run_validate(
     relabel_from: Path | None = None,
     relabel_input_col: str | None = None,
     relabel_output_col: str | None = None,
+    preflight_json_path: Path | None = None,
 ) -> None:
     """Validate subcommand orchestrator."""
     started = time.perf_counter()
@@ -92,6 +101,22 @@ def run_validate(
         descriptors = [
             replace(d, n_variants=len(pv)) for d, pv in zip(descriptors, pvars, strict=True)
         ]
+
+        # Step 7b: preflight input-compatibility report (issue #12). Computes
+        # canonical-vs-other key-space intersection + per-chrom breakdown,
+        # classifies each pair, then applies --preflight-policy. Reusing the
+        # already-read `pvars` list (validate's whole job is pass 1 — we have
+        # them in hand) keeps this O(N) reads instead of 2N. Run before the
+        # alignment table is built so a misconfigured input (build mismatch,
+        # rs vs chr:pos key mismatch, disjoint panels) surfaces with a clear
+        # classification rather than as a tiny intersection downstream.
+        preflight_report = compute_preflight(
+            descriptors, policy, tool_version=__version__, command="validate", pvars=pvars
+        )
+        preflight_report = evaluate_gate(preflight_report, policy)
+        if preflight_json_path is not None:
+            write_preflight_json(preflight_report, preflight_json_path)
+        _apply_preflight_gate_action(preflight_report, quiet)
 
         # Step 8: validate_unique_keys on canonical (delegated)
         # Step 9: build alignment table with soften_policy_errors=True (validate mode).
@@ -168,7 +193,37 @@ def run_validate(
                 summary=summary,
                 policy=policy,
                 elapsed_s=elapsed,
+                preflight=preflight_report,
             )
+        )
+
+
+def _apply_preflight_gate_action(report: PreflightReport, quiet: bool) -> None:
+    """Surface the preflight gate action to the caller.
+
+    Validate writes no PFILE output, so unlike merge there is no stale
+    triplet to unlink on strict-mode failure — just raise. JSON, if a
+    path was supplied, is already written by the caller (before this
+    helper) so the user sees full evidence even when we raise.
+
+    `warn` policy mirrors merge's wording: stderr WARNING line, run
+    continues. `off` / `none` actions are no-ops here.
+    """
+    gate_action = report.gate.get("action", "none")
+    if gate_action == "error":
+        # Same exit-1 semantics as merge: a near-empty merge is an
+        # input-quality breach, not an invariant violation. `validate`
+        # is a dry-run for `merge`, so consistent exit codes let CI
+        # gate on the cheaper command.
+        raise ValidationError(
+            f"{format_gate_message(report)}\n"
+            "Pass --preflight-policy warn to downgrade to a stderr warning, "
+            "or --preflight-policy off to suppress entirely."
+        )
+    if gate_action == "warn" and not quiet:
+        print(
+            f"WARNING: {format_gate_message(report)}",
+            file=sys.stderr,
         )
 
 
@@ -178,9 +233,17 @@ def _format_validate_stdout(
     summary: AlignmentSummary,
     policy: MergePolicy,
     elapsed_s: float,
+    preflight: PreflightReport | None = None,
 ) -> str:
     """Validate-mode stdout summary. Subset of merge's HLD block (no output
-    PFILE; no pseudohaploid mix since pass 2 didn't run)."""
+    PFILE; no pseudohaploid mix since pass 2 didn't run).
+
+    When `preflight` is supplied (the production path), inserts a one-line-
+    per-comparison block right after the inputs list so users see the
+    classification + intersection fraction before scanning the alignment
+    histogram below. `None` is the legacy path used by older tests that
+    don't construct a preflight report — they get the pre-issue-12 layout.
+    """
     lines: list[str] = []
     lines.append(f"Read {len(descriptors)} inputs:")
     for i, d in enumerate(descriptors):
@@ -189,6 +252,21 @@ def _format_validate_stdout(
             f"  [{i}] {d.path}: {d.n_samples:,} samples, {d.n_variants:,} variants{canonical}"
         )
     lines.append("")
+
+    if preflight is not None and preflight.comparisons:
+        lines.append(f"Preflight (variant_key={preflight.variant_key}):")
+        for c in preflight.comparisons:
+            lines.append(
+                f"  [{c.input_index}] intersection={c.intersection:,} "
+                f"({c.intersection_fraction_of_min:.1%} of min)  "
+                f"classification={c.classification}"
+            )
+        gate_summary = (
+            f"  gate: {preflight.gate.get('action', 'none')} "
+            f"(policy={preflight.gate.get('policy', '?')})"
+        )
+        lines.append(gate_summary)
+        lines.append("")
 
     lines.append("Variant alignment (pass 1 only):")
     hist = counters.action_histogram
