@@ -13,9 +13,15 @@ import pandas as pd
 
 from .. import __version__, psam, pseudohaploid, reporting
 from ..concurrency import output_lock
-from ..errors import InvariantViolation, PgenSamplebindError
+from ..errors import InvariantViolation, PgenSamplebindError, ValidationError
 from ..formats import prepared_input
 from ..merge import merge_inputs
+from ..preflight import (
+    compute_preflight,
+    evaluate_gate,
+    format_gate_message,
+    write_preflight_json,
+)
 from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
 from ..types import (
     InputDescriptor,
@@ -129,6 +135,7 @@ def run_merge(
     out_pgen_path = Path(str(output_prefix) + ".pgen")
     out_pvar_path = Path(str(output_prefix) + ".pvar")
     out_psam_path = Path(str(output_prefix) + ".psam")
+    out_preflight_path = Path(str(output_prefix) + ".preflight.json")
     output_paths = {"pgen": out_pgen_path, "pvar": out_pvar_path, "psam": out_psam_path}
 
     with ExitStack() as stack:
@@ -203,6 +210,46 @@ def run_merge(
             replace(d, n_samples=len(df), n_variants=n_variants)
             for d, df, n_variants in zip(descriptors, psam_dfs, n_variants_per_input, strict=True)
         ]
+
+        # Step 9b: emit preflight report (schema v1) before pass 2 so users
+        # see input-compatibility numbers even on runs that later fail in
+        # the merge. The classifier (step 3) populates per-comparison
+        # `classification` / `evidence`; the gate (step 4) consumes those
+        # plus `policy.preflight_policy` to decide warn / strict / off.
+        preflight_report = compute_preflight(
+            descriptors, policy, tool_version=__version__, command="merge"
+        )
+        preflight_report = evaluate_gate(preflight_report, policy)
+        write_preflight_json(preflight_report, out_preflight_path)
+        output_paths["preflight"] = out_preflight_path
+
+        # Apply gate action. JSON is written first so the user can inspect
+        # full evidence regardless of which branch we take.
+        gate_action = preflight_report.gate.get("action", "none")
+        if gate_action == "error":
+            # `strict` policy: refuse to proceed. ValidationError carries
+            # ExitCode.VALIDATION_FAILURE (exit 1) — the same category as
+            # call-rate / threshold breaches, since "this merge would
+            # produce a near-empty output" is the same class of input-
+            # quality problem.
+            #
+            # Unlink any STALE triplet at the same prefix from a prior
+            # successful run. Without this, a re-run that trips the gate
+            # leaves the old .pgen/.pvar/.psam on disk alongside the
+            # fresh failing preflight.json — downstream pipelines keyed
+            # on the triplet would consume stale data. The output_lock
+            # is still held, so there's no concurrent-writer race.
+            _unlink_output_triplet(out_pgen_path, out_pvar_path, out_psam_path)
+            raise ValidationError(
+                f"{format_gate_message(preflight_report)}\n"
+                "Pass --preflight-policy warn to downgrade to a stderr warning, "
+                "or --preflight-policy off to suppress entirely."
+            )
+        if gate_action == "warn" and not quiet:
+            print(
+                f"WARNING: {format_gate_message(preflight_report)}",
+                file=sys.stderr,
+            )
 
         # Step 10: resolve sample identity (collision policy applied; target_idxs
         # drive the `_target` / `_target_<input_idx>` suffix scheme under

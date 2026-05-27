@@ -326,6 +326,90 @@ def make_panel_with_iids(
     return out_prefix
 
 
+def shift_positions(
+    in_prefix: Path,
+    out_prefix: Path,
+    *,
+    per_chrom_offset: int | dict[int, int] = 1_000_000,
+) -> None:
+    """Add a deterministic offset to every variant's POS in the .pvar.
+
+    Simulates a build-coordinate mismatch (e.g., hg19 vs hg38): same
+    variants, same alleles, same .pgen genotype rows, but coordinates
+    have shifted so a chr:pos-keyed intersection collapses while a
+    same-variant rsID-keyed intersection (if both panels used rsIDs)
+    would survive. Used by the preflight classifier corpus to reproduce
+    the failure shape from issue
+    [#12](https://github.com/carstenerickson/pgen-samplebind/issues/12).
+
+    Args:
+        per_chrom_offset: int (applied to every chromosome) or
+            {chrom: offset} (per-chromosome). Default 1,000,000 mimics
+            an aggressive build shift while staying inside the
+            synthesizer's 100M position range.
+
+    Genotype and psam files are copied unchanged.
+    """
+    pvar_df = _read_pvar_raw(in_prefix)
+    if isinstance(per_chrom_offset, int):
+        offsets = {int(c): per_chrom_offset for c in pvar_df["#CHROM"].unique()}
+    else:
+        offsets = {int(k): int(v) for k, v in per_chrom_offset.items()}
+        # Reject unmapped chroms loudly. The previous silent-default-to-0
+        # behavior let callers produce mostly-shifted fixtures with a
+        # few unshifted chromosomes — those rows kept their original
+        # positions, leaving the build_mismatch invariant
+        # (n_shared_chroms_zero_overlap == n_shared_chroms) violated
+        # without an obvious cause. Better to fail loudly at fixture
+        # construction.
+        pvar_chroms = {int(c) for c in pvar_df["#CHROM"].unique()}
+        missing = pvar_chroms - set(offsets)
+        if missing:
+            raise ValueError(
+                f"shift_positions: per_chrom_offset dict is missing chromosomes "
+                f"{sorted(missing)} that appear in {in_prefix}.pvar. Pass an int "
+                f"to apply a uniform shift, or extend the dict to cover every chrom."
+            )
+    # If the ID column follows `chr<c>:<p>` form (the synthesizer's default,
+    # and a common convention in plink2 panels), re-derive IDs from the new
+    # coordinates. Realistic build-shifted panels expose the position
+    # change through both POS and ID; leaving IDs frozen would let an rsID-
+    # style intersection survive the shift, which mis-fingerprints as
+    # `key_space_mismatch` instead of `build_mismatch`.
+    new_positions: list[int] = []
+    new_ids: list[str] = []
+    for chrom, old_pos, old_id in zip(
+        pvar_df["#CHROM"], pvar_df["POS"], pvar_df["ID"], strict=True
+    ):
+        new_pos = int(old_pos) + offsets.get(int(chrom), 0)
+        new_positions.append(new_pos)
+        if str(old_id) == f"chr{int(chrom)}:{int(old_pos)}":
+            new_ids.append(f"chr{int(chrom)}:{new_pos}")
+        else:
+            new_ids.append(str(old_id))
+    pvar_df["POS"] = new_positions
+    pvar_df["ID"] = new_ids
+    _write_pvar_raw(pvar_df, out_prefix)
+    shutil.copy(Path(str(in_prefix) + ".pgen"), Path(str(out_prefix) + ".pgen"))
+    shutil.copy(Path(str(in_prefix) + ".psam"), Path(str(out_prefix) + ".psam"))
+
+
+def rename_ids_to_rsid(in_prefix: Path, out_prefix: Path, *, start: int = 1) -> None:
+    """Rewrite the .pvar ID column from `chr<c>:<p>` style to `rs<N>` style.
+
+    Used by the preflight classifier corpus to reproduce a key-space
+    mismatch: canonical keys against chr:pos (default), other panel
+    carries variant IDs that *would* match under `--variant-key id` but
+    don't share the chr:pos string format. Chrom / pos / alleles /
+    genotypes all unchanged — only the ID column is rewritten.
+    """
+    pvar_df = _read_pvar_raw(in_prefix)
+    pvar_df["ID"] = [f"rs{start + i}" for i in range(len(pvar_df))]
+    _write_pvar_raw(pvar_df, out_prefix)
+    shutil.copy(Path(str(in_prefix) + ".pgen"), Path(str(out_prefix) + ".pgen"))
+    shutil.copy(Path(str(in_prefix) + ".psam"), Path(str(out_prefix) + ".psam"))
+
+
 def compress_pvar_to_zst(prefix: Path) -> Path:
     """Replace `<prefix>.pvar` with `<prefix>.pvar.zst` (zstd-compressed).
 

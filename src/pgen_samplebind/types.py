@@ -80,6 +80,7 @@ OnExtra = Literal["warn", "drop", "error"]
 OnStrand = Literal["drop", "flip", "error"]
 OnCollision = Literal["error", "first", "suffix"]
 VariantKey = Literal["chr_pos", "id"]
+PreflightPolicy = Literal["warn", "strict", "off"]
 
 
 # -----------------------------------------------------------------------------
@@ -127,6 +128,11 @@ class MergePolicy:
     extras_warn_threshold: float = 0.10
     validate_strand_fail_pct: float = 10.0
     report_json_include_rows: bool = False
+    # Preflight gate: warn (default — stderr + continue), strict (raise
+    # ValidationError on any non-compatible classification), or off
+    # (compute + emit JSON but never warn or fail). See issue
+    # [#12](https://github.com/carstenerickson/pgen-samplebind/issues/12) step 4.
+    preflight_policy: PreflightPolicy = "warn"
 
 
 # -----------------------------------------------------------------------------
