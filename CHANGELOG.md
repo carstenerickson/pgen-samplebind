@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- **`merge` throughput drops ~38% from v0.4.0** on the 2 × 100K-variant CI perf fixture (70.84M → 43.8M genotypes/sec) due to the always-on preflight feature added in PR #13: an extra `.pvar` read per input plus Python-level key-set construction in `_keys_for(chr_pos)` before pass 2. The cost is dominated by tuple/set construction over the variant key, not by the build-shift signature or the JSON write. `perf_baseline.json` recalibrated to 40M g/s (gate at 32M g/s = 80% of baseline, same 27%-regression-headroom envelope as the v0.3.1 calibration). Follow-up: thread `merge_inputs`'s pvar cache through to `compute_preflight` (currently re-read; the kwarg-based API is already in place for `validate` and recovers most of the gap there — see preflight.py's docstring).
+
 ### Fixed (preflight second-pass review)
 
 - **Canonical with all-placeholder IDs no longer mis-classifies as `empty_input`.** The empty_input guard in `classify_pair` was keyed on `alternate_key_canonical_size == 0`, which is always 0 for a canonical .pvar where every ID is `.` / `NA` / `0` (common in pre-rsID-annotation pipelines) — even when the chr_pos data is intact and the merge would succeed. The guard now derives `canonical_active_size` from `per_chrom` (which always reflects the active key), so a chr_pos-keyed run against a placeholder-ID canonical correctly classifies `compatible`. Closes review finding #C1.
