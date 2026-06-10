@@ -126,10 +126,13 @@ def compute_preflight(
 
     canonical_desc = descriptors[0]
     canonical_df = pvars[0] if pvars is not None else read_pvar(canonical_desc.pvar_path)
-    canonical_keys = _keys_for(canonical_df, policy.variant_key)
-    canonical_by_chrom = _keys_by_chrom(canonical_df, policy.variant_key)
     alternate_key = _alternate_key(policy.variant_key)
-    canonical_alt_keys = _keys_for(canonical_df, alternate_key)
+    # Build the canonical key universes once (active + alternate). For
+    # chr_pos these are sorted-unique int64 code arrays; for id, str sets.
+    canonical_univ = _key_universe(canonical_df, policy.variant_key)
+    canonical_alt_univ = _key_universe(canonical_df, alternate_key)
+    n_canonical = _key_count(canonical_univ)
+    n_canonical_alt = _key_count(canonical_alt_univ)
     # Extract canonical chrom/pos numpy arrays once (used by every
     # _compute_build_shift_signature call in the loop). At 84M-variant
     # canonical scale these are ~336 MB each; materializing them once
@@ -141,29 +144,22 @@ def compute_preflight(
     comparisons: list[PairCompatibility] = []
     for i, desc in enumerate(descriptors[1:], start=1):
         other_df = pvars[i] if pvars is not None else read_pvar(desc.pvar_path)
-        other_keys = _keys_for(other_df, policy.variant_key)
-        other_by_chrom = _keys_by_chrom(other_df, policy.variant_key)
+        other_univ = _key_universe(other_df, policy.variant_key)
+        n_other = _key_count(other_univ)
 
-        intersection = len(canonical_keys & other_keys)
-        denom = min(len(canonical_keys), len(other_keys))
+        intersection = _intersection_count(canonical_univ, other_univ)
+        denom = min(n_canonical, n_other)
         fraction = (intersection / denom) if denom > 0 else 0.0
 
-        per_chrom = tuple(
-            PerChromCompat(
-                chrom=chrom,
-                canonical_size=len(canonical_by_chrom.get(chrom, set())),
-                other_size=len(other_by_chrom.get(chrom, set())),
-                intersection=len(
-                    canonical_by_chrom.get(chrom, set()) & other_by_chrom.get(chrom, set())
-                ),
-            )
-            for chrom in sorted(set(canonical_by_chrom) | set(other_by_chrom))
+        per_chrom = _per_chrom_compat(
+            policy.variant_key, canonical_df, other_df, canonical_univ, other_univ
         )
 
         # Alternate-key view, for key_space_mismatch detection.
-        other_alt_keys = _keys_for(other_df, alternate_key)
-        alt_intersection = len(canonical_alt_keys & other_alt_keys)
-        alt_denom = min(len(canonical_alt_keys), len(other_alt_keys))
+        other_alt_univ = _key_universe(other_df, alternate_key)
+        alt_intersection = _intersection_count(canonical_alt_univ, other_alt_univ)
+        n_other_alt = _key_count(other_alt_univ)
+        alt_denom = min(n_canonical_alt, n_other_alt)
         alt_fraction = (alt_intersection / alt_denom) if alt_denom > 0 else 0.0
 
         # Build-shift signature: only computed when the per-chrom shape
@@ -182,13 +178,13 @@ def compute_preflight(
         pair = PairCompatibility(
             input_index=i,
             path=desc.path,
-            n_variants=len(other_keys),
+            n_variants=n_other,
             intersection=intersection,
             intersection_fraction_of_min=fraction,
             per_chrom=per_chrom,
             alternate_key=alternate_key,
-            alternate_key_canonical_size=len(canonical_alt_keys),
-            alternate_key_other_size=len(other_alt_keys),
+            alternate_key_canonical_size=n_canonical_alt,
+            alternate_key_other_size=n_other_alt,
             alternate_key_intersection=alt_intersection,
             alternate_key_fraction_of_min=alt_fraction,
             build_shift_signature=build_shift,
@@ -206,7 +202,7 @@ def compute_preflight(
         canonical={
             "path": str(canonical_desc.path),
             "index": 0,
-            "n_variants": len(canonical_keys),
+            "n_variants": n_canonical,
         },
         comparisons=tuple(comparisons),
         gate={"triggered": False, "action": "none", "threshold": None},
@@ -626,32 +622,121 @@ def _alternate_key(active: str) -> str:
 _PLACEHOLDER_VARIANT_IDS: frozenset[str] = frozenset({".", "", "0", "NA", "nan", "None"})
 
 
-def _keys_for(df: pd.DataFrame, variant_key: str) -> set[Any]:
+# (chrom, pos) packed into one int64: chrom in the high bits, pos in the
+# low _CHROM_SHIFT bits. Lets the chr_pos key-space be represented as a
+# sorted-unique int64 array so intersection / per-chrom counts run as
+# vectorized numpy (np.unique / np.intersect1d) instead of building a
+# Python set of 2-tuples — the latter was the dominant cost of the
+# preflight pass at panel scale (issue #12 perf follow-up). 40-bit pos
+# field holds any genomic coordinate (< 2^40 ≈ 1.1e12 bp) collision-free,
+# and the max chrom (26) << 40 ≈ 2.9e13 stays well under the int64 ceiling.
+_CHROM_SHIFT = 40
+
+
+def _unique_chr_pos_codes(df: pd.DataFrame) -> np.ndarray[Any, Any]:
+    """Encode each (chrom, pos) row as one int64 and return sorted-unique codes."""
+    chrom = np.asarray(df["chrom"], dtype=np.int64)
+    pos = np.asarray(df["pos"], dtype=np.int64)
+    if pos.size and (pos.max() >= (1 << _CHROM_SHIFT) or pos.min() < 0):
+        raise InvariantViolation(
+            f"position out of range for chr_pos key encoding: "
+            f"max={int(pos.max())}, min={int(pos.min())} (expected 0 <= pos < 2^{_CHROM_SHIFT})"
+        )
+    return np.unique((chrom << _CHROM_SHIFT) | pos)
+
+
+def _counts_by_chrom_from_codes(codes: np.ndarray[Any, Any]) -> dict[int, int]:
+    """Per-chrom unique-key counts from an int64 code array (chrom = code >> shift)."""
+    if codes.size == 0:
+        return {}
+    uniq, counts = np.unique(codes >> _CHROM_SHIFT, return_counts=True)
+    return dict(zip(uniq.tolist(), counts.tolist(), strict=True))
+
+
+# A "key universe" is the deduplicated set of variant keys under one
+# variant_key. chr_pos → sorted-unique int64 code array (vectorized);
+# id → set[str] (arbitrary strings; placeholder IDs filtered). Both
+# support _key_count / _intersection_count uniformly.
+def _key_universe(df: pd.DataFrame, variant_key: str) -> Any:
     if variant_key == "chr_pos":
-        return set(zip(df["chrom"].tolist(), df["pos"].tolist(), strict=True))
+        return _unique_chr_pos_codes(df)
     if variant_key == "id":
         return {vid for vid in df["id"].astype(str).tolist() if vid not in _PLACEHOLDER_VARIANT_IDS}
     raise InvariantViolation(f"unknown variant_key: {variant_key!r}")
 
 
-def _keys_by_chrom(df: pd.DataFrame, variant_key: str) -> dict[int, set[Any]]:
-    """Per-chrom key sets, used for the per_chrom breakdown.
+def _key_count(universe: Any) -> int:
+    return int(universe.size) if isinstance(universe, np.ndarray) else len(universe)
 
-    Placeholder IDs are filtered in the `id` branch (see
-    `_PLACEHOLDER_VARIANT_IDS`) so per-chrom sizes match the
-    deduplicated-key set produced by `_keys_for`.
-    """
-    out: dict[int, set[Any]] = {}
+
+def _intersection_count(a: Any, b: Any) -> int:
+    if isinstance(a, np.ndarray):
+        # Both arrays are sorted-unique → assume_unique is safe and faster.
+        return int(np.intersect1d(a, b, assume_unique=True).size)
+    return len(a & b)
+
+
+def _per_chrom_chr_pos(
+    can_codes: np.ndarray[Any, Any],
+    oth_codes: np.ndarray[Any, Any],
+    inter_codes: np.ndarray[Any, Any],
+) -> tuple[PerChromCompat, ...]:
+    """Per-chrom breakdown for the chr_pos key, derived from int64 codes."""
+    can_counts = _counts_by_chrom_from_codes(can_codes)
+    oth_counts = _counts_by_chrom_from_codes(oth_codes)
+    inter_counts = _counts_by_chrom_from_codes(inter_codes)
+    return tuple(
+        PerChromCompat(
+            chrom=chrom,
+            canonical_size=can_counts.get(chrom, 0),
+            other_size=oth_counts.get(chrom, 0),
+            intersection=inter_counts.get(chrom, 0),
+        )
+        for chrom in sorted(set(can_counts) | set(oth_counts))
+    )
+
+
+def _per_chrom_id(canonical_df: pd.DataFrame, other_df: pd.DataFrame) -> tuple[PerChromCompat, ...]:
+    """Per-chrom breakdown for the id key. Buckets IDs by their row's chrom
+    (placeholder IDs filtered) and intersects per chrom — kept set-based
+    because id keys are arbitrary strings, not the perf-critical path."""
+    can_by = _ids_by_chrom(canonical_df)
+    oth_by = _ids_by_chrom(other_df)
+    return tuple(
+        PerChromCompat(
+            chrom=chrom,
+            canonical_size=len(can_by.get(chrom, set())),
+            other_size=len(oth_by.get(chrom, set())),
+            intersection=len(can_by.get(chrom, set()) & oth_by.get(chrom, set())),
+        )
+        for chrom in sorted(set(can_by) | set(oth_by))
+    )
+
+
+def _ids_by_chrom(df: pd.DataFrame) -> dict[int, set[str]]:
+    out: dict[int, set[str]] = {}
+    for chrom, vid in zip(df["chrom"].tolist(), df["id"].astype(str).tolist(), strict=True):
+        if vid in _PLACEHOLDER_VARIANT_IDS:
+            continue
+        out.setdefault(int(chrom), set()).add(vid)
+    return out
+
+
+def _per_chrom_compat(
+    variant_key: str,
+    canonical_df: pd.DataFrame,
+    other_df: pd.DataFrame,
+    can_universe: Any,
+    oth_universe: Any,
+) -> tuple[PerChromCompat, ...]:
+    """Per-chrom compatibility for the active key. chr_pos reuses the
+    already-computed code arrays (no second read); id falls back to the
+    set-based path."""
     if variant_key == "chr_pos":
-        for chrom, pos in zip(df["chrom"].tolist(), df["pos"].tolist(), strict=True):
-            out.setdefault(int(chrom), set()).add((chrom, pos))
-        return out
+        inter_codes = np.intersect1d(can_universe, oth_universe, assume_unique=True)
+        return _per_chrom_chr_pos(can_universe, oth_universe, inter_codes)
     if variant_key == "id":
-        for chrom, vid in zip(df["chrom"].tolist(), df["id"].astype(str).tolist(), strict=True):
-            if vid in _PLACEHOLDER_VARIANT_IDS:
-                continue
-            out.setdefault(int(chrom), set()).add(vid)
-        return out
+        return _per_chrom_id(canonical_df, other_df)
     raise InvariantViolation(f"unknown variant_key: {variant_key!r}")
 
 
