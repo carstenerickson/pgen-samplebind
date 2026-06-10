@@ -296,9 +296,7 @@ def run_merge(
             # Step 12: merge_inputs (pass 1 + gates + pass 2; writes .pgen +
             # .pvar + report TSV if ctx.report_tsv_path; populates
             # counters.variant_rows if ctx.collect_variant_rows).
-            counters = merge_inputs(
-                descriptors, out_pgen_path, out_pvar_path, ctx, pvars=pvars
-            )
+            counters = merge_inputs(descriptors, out_pgen_path, out_pvar_path, ctx, pvars=pvars)
 
             # Step 13: psam finalization
             merged_psam = psam.merge_psams(psam_dfs, sample_plan)

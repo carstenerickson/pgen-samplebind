@@ -254,15 +254,25 @@ def test_merge_reads_each_pvar_exactly_once(tmp_path: Path) -> None:
 
     a = synthesize_pfile(
         SyntheticPanelSpec(
-            n_samples=20, n_variants=200, n_populations=2,
-            chromosomes=(1, 2), variant_seed=1, sample_seed=2, sample_id_prefix="A",
+            n_samples=20,
+            n_variants=200,
+            n_populations=2,
+            chromosomes=(1, 2),
+            variant_seed=1,
+            sample_seed=2,
+            sample_id_prefix="A",
         ),
         tmp_path / "a",
     ).path
     b = synthesize_pfile(
         SyntheticPanelSpec(
-            n_samples=20, n_variants=200, n_populations=2,
-            chromosomes=(1, 2), variant_seed=1, sample_seed=3, sample_id_prefix="B",
+            n_samples=20,
+            n_variants=200,
+            n_populations=2,
+            chromosomes=(1, 2),
+            variant_seed=1,
+            sample_seed=3,
+            sample_id_prefix="B",
         ),
         tmp_path / "b",
     ).path
@@ -275,9 +285,11 @@ def test_merge_reads_each_pvar_exactly_once(tmp_path: Path) -> None:
         return real(path)
 
     # Patch every name the two call sites resolve read_pvar through.
-    with patch("pgen_samplebind.commands.merge_cmd.read_pvar", side_effect=counting), \
-         patch("pgen_samplebind.merge.pvar.read_pvar", side_effect=counting), \
-         patch("pgen_samplebind.preflight.read_pvar", side_effect=counting):
+    with (
+        patch("pgen_samplebind.commands.merge_cmd.read_pvar", side_effect=counting),
+        patch("pgen_samplebind.merge.pvar.read_pvar", side_effect=counting),
+        patch("pgen_samplebind.preflight.read_pvar", side_effect=counting),
+    ):
         run_merge((a, b), (), tmp_path / "out", MergePolicy(), None, None, quiet=True)
 
     # Exactly one read per input (2), not 2 per input (4).
