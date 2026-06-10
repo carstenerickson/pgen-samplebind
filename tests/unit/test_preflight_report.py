@@ -463,3 +463,43 @@ def test_key_universe_id_filters_placeholders() -> None:
     )
     universe = _key_universe(df, "id")
     assert universe == {"rs1", "rs2"}
+
+
+def test_chr_pos_intersection_computed_once_per_comparison(tmp_path: Path) -> None:
+    """Regression: the active-key intersection must be computed ONCE per
+    comparison and reused for both the scalar count and the per-chrom
+    breakdown — not intersected twice. Pins the dedup so a future refactor
+    can't silently reintroduce the second np.intersect1d that the perf
+    follow-up removed. Also asserts the per-chrom intersection partitions
+    the scalar exactly (the reuse is correct, not just cheaper).
+    """
+    from unittest.mock import patch
+
+    import numpy as np
+
+    import pgen_samplebind.preflight as pf
+
+    # 3-input merge (2 non-canonical comparisons) so the count is unambiguous.
+    paths = [
+        _panel(tmp_path, name, variant_seed=1)  # identical variant_seed → shared chr_pos
+        for name in ("a", "b", "c")
+    ]
+    descriptors = [_descriptor(p) for p in paths]
+
+    real = np.intersect1d
+    calls = {"n": 0}
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    with patch.object(pf.np, "intersect1d", side_effect=counting):
+        report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
+
+    # Active key chr_pos: exactly one intersect1d per non-canonical input.
+    # The alternate key here is id (set-based, no intersect1d). Two
+    # comparisons → 2 calls. Before the dedup this was 4 (count + per-chrom).
+    assert calls["n"] == 2, f"expected 1 intersect per comparison (2), got {calls['n']}"
+    # Correctness: per-chrom intersections sum to the scalar for each pair.
+    for c in report.comparisons:
+        assert sum(pc.intersection for pc in c.per_chrom) == c.intersection

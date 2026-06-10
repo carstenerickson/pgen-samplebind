@@ -140,6 +140,18 @@ def compute_preflight(
     # a wash, but N>2 (multi-input cohort assembly) sees real wins.
     canonical_chrom_arr = canonical_df["chrom"].to_numpy()
     canonical_pos_arr = canonical_df["pos"].to_numpy()
+    # Canonical per-chrom key structure, computed once (loop-invariant).
+    # chr_pos → {chrom: unique-key-count}; id → {chrom: set[id]}. Was
+    # rebuilt inside _per_chrom_compat on every non-canonical input — an
+    # N-1x redundant np.unique / Python-bucketing pass for N-way merges.
+    canonical_per_chrom = _prepare_canonical_per_chrom(
+        policy.variant_key, canonical_df, canonical_univ
+    )
+    # Lazily-filled {chrom: sorted canonical positions} shared across all
+    # build-shift calls so a given chrom's canonical column is masked and
+    # sorted at most once for the whole merge, not once per non-canonical
+    # input (the canonical positions don't change between comparisons).
+    canonical_sorted_pos_cache: dict[int, np.ndarray[Any, Any]] = {}
 
     comparisons: list[PairCompatibility] = []
     for i, desc in enumerate(descriptors[1:], start=1):
@@ -147,15 +159,21 @@ def compute_preflight(
         other_univ = _key_universe(other_df, policy.variant_key)
         n_other = _key_count(other_univ)
 
-        intersection = _intersection_count(canonical_univ, other_univ)
+        # Compute the active-key intersection ONCE and reuse it for both the
+        # scalar count and the per-chrom breakdown. Previously the same
+        # intersection was computed twice per comparison — once here for the
+        # count, once inside _per_chrom_compat — doubling the dominant
+        # np.intersect1d cost on every merge (not just N>2).
+        inter = _intersect(canonical_univ, other_univ)
+        intersection = _key_count(inter)
         denom = min(n_canonical, n_other)
         fraction = (intersection / denom) if denom > 0 else 0.0
 
         per_chrom = _per_chrom_compat(
-            policy.variant_key, canonical_df, other_df, canonical_univ, other_univ
+            policy.variant_key, canonical_per_chrom, other_df, other_univ, inter
         )
 
-        # Alternate-key view, for key_space_mismatch detection.
+        # Alternate-key view, for key_space_mismatch detection (count only).
         other_alt_univ = _key_universe(other_df, alternate_key)
         alt_intersection = _intersection_count(canonical_alt_univ, other_alt_univ)
         n_other_alt = _key_count(other_alt_univ)
@@ -165,14 +183,16 @@ def compute_preflight(
         # Build-shift signature: only computed when the per-chrom shape
         # could plausibly indicate a build mismatch (shared chroms with
         # zero coord overlap). Cheap when nothing qualifies — early-out
-        # inside the helper. Canonical arrays are hoisted out of the
-        # loop (see above); other arrays are per-iteration anyway.
+        # inside the helper. Canonical arrays + the sorted-pos cache are
+        # hoisted out of the loop (see above); other arrays are
+        # per-iteration anyway.
         build_shift = _compute_build_shift_signature(
             canonical_chrom_arr,
             canonical_pos_arr,
             other_df["chrom"].to_numpy(),
             other_df["pos"].to_numpy(),
             per_chrom,
+            canonical_sorted_pos_cache,
         )
 
         pair = PairCompatibility(
@@ -529,6 +549,7 @@ def _compute_build_shift_signature(
     other_chrom: np.ndarray[Any, Any],
     other_pos: np.ndarray[Any, Any],
     per_chrom: tuple[PerChromCompat, ...],
+    canonical_sorted_pos_cache: dict[int, np.ndarray[Any, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Per-chrom rank-aligned position-shift summary.
 
@@ -571,9 +592,18 @@ def _compute_build_shift_signature(
     can_pos = canonical_pos
     oth_chrom = other_chrom
     oth_pos = other_pos
+    # The canonical sorted positions for a chrom are invariant across
+    # non-canonical inputs; cache them (when the caller supplies a cache)
+    # so each chrom's canonical mask+sort runs at most once per merge.
+    cache = canonical_sorted_pos_cache
 
     for chrom in qualifying:
-        can_sorted = np.sort(can_pos[can_chrom == chrom])
+        if cache is not None and chrom in cache:
+            can_sorted = cache[chrom]
+        else:
+            can_sorted = np.sort(can_pos[can_chrom == chrom])
+            if cache is not None:
+                cache[chrom] = can_sorted
         oth_sorted = np.sort(oth_pos[oth_chrom == chrom])
         n = min(len(can_sorted), len(oth_sorted))
         # rank-align: i-th smallest on each side
@@ -669,20 +699,43 @@ def _key_count(universe: Any) -> int:
     return int(universe.size) if isinstance(universe, np.ndarray) else len(universe)
 
 
-def _intersection_count(a: Any, b: Any) -> int:
+def _intersect(a: Any, b: Any) -> Any:
+    """Intersection in the universe's own representation: a sorted-unique
+    int64 code array (chr_pos) or a set (id). Callers that only need the
+    size go through `_intersection_count`; callers that also need the
+    per-chrom breakdown reuse the returned object so the intersection is
+    computed once."""
     if isinstance(a, np.ndarray):
         # Both arrays are sorted-unique → assume_unique is safe and faster.
-        return int(np.intersect1d(a, b, assume_unique=True).size)
-    return len(a & b)
+        return np.intersect1d(a, b, assume_unique=True)
+    return a & b
+
+
+def _intersection_count(a: Any, b: Any) -> int:
+    return _key_count(_intersect(a, b))
+
+
+def _prepare_canonical_per_chrom(
+    variant_key: str, canonical_df: pd.DataFrame, canonical_univ: Any
+) -> Any:
+    """Canonical-side per-chrom structure, computed once per merge (it is
+    invariant across non-canonical inputs). chr_pos → {chrom: count} from
+    the already-built code universe; id → {chrom: set[id]} buckets."""
+    if variant_key == "chr_pos":
+        return _counts_by_chrom_from_codes(canonical_univ)
+    if variant_key == "id":
+        return _ids_by_chrom(canonical_df)
+    raise InvariantViolation(f"unknown variant_key: {variant_key!r}")
 
 
 def _per_chrom_chr_pos(
-    can_codes: np.ndarray[Any, Any],
+    can_counts: dict[int, int],
     oth_codes: np.ndarray[Any, Any],
     inter_codes: np.ndarray[Any, Any],
 ) -> tuple[PerChromCompat, ...]:
-    """Per-chrom breakdown for the chr_pos key, derived from int64 codes."""
-    can_counts = _counts_by_chrom_from_codes(can_codes)
+    """Per-chrom breakdown for the chr_pos key. `can_counts` is the
+    precomputed canonical {chrom: count}; `inter_codes` is the active-key
+    intersection already computed by the caller (reused, not recomputed)."""
     oth_counts = _counts_by_chrom_from_codes(oth_codes)
     inter_counts = _counts_by_chrom_from_codes(inter_codes)
     return tuple(
@@ -696,11 +749,13 @@ def _per_chrom_chr_pos(
     )
 
 
-def _per_chrom_id(canonical_df: pd.DataFrame, other_df: pd.DataFrame) -> tuple[PerChromCompat, ...]:
-    """Per-chrom breakdown for the id key. Buckets IDs by their row's chrom
-    (placeholder IDs filtered) and intersects per chrom — kept set-based
-    because id keys are arbitrary strings, not the perf-critical path."""
-    can_by = _ids_by_chrom(canonical_df)
+def _per_chrom_id(
+    can_by: dict[int, set[str]], other_df: pd.DataFrame
+) -> tuple[PerChromCompat, ...]:
+    """Per-chrom breakdown for the id key. `can_by` is the precomputed
+    canonical {chrom: set[id]}; the other side is bucketed and intersected
+    per chrom — kept set-based because id keys are arbitrary strings, not
+    the perf-critical path."""
     oth_by = _ids_by_chrom(other_df)
     return tuple(
         PerChromCompat(
@@ -724,19 +779,20 @@ def _ids_by_chrom(df: pd.DataFrame) -> dict[int, set[str]]:
 
 def _per_chrom_compat(
     variant_key: str,
-    canonical_df: pd.DataFrame,
+    canonical_per_chrom: Any,
     other_df: pd.DataFrame,
-    can_universe: Any,
     oth_universe: Any,
+    inter: Any,
 ) -> tuple[PerChromCompat, ...]:
-    """Per-chrom compatibility for the active key. chr_pos reuses the
-    already-computed code arrays (no second read); id falls back to the
-    set-based path."""
+    """Per-chrom compatibility for the active key, reusing the canonical
+    structure (`canonical_per_chrom`) and the already-computed intersection
+    (`inter`) from the caller. chr_pos uses the int64 code path; id falls
+    back to the set-based path (where `inter` is unused — per-chrom id
+    intersection is a per-bucket set-AND)."""
     if variant_key == "chr_pos":
-        inter_codes = np.intersect1d(can_universe, oth_universe, assume_unique=True)
-        return _per_chrom_chr_pos(can_universe, oth_universe, inter_codes)
+        return _per_chrom_chr_pos(canonical_per_chrom, oth_universe, inter)
     if variant_key == "id":
-        return _per_chrom_id(canonical_df, other_df)
+        return _per_chrom_id(canonical_per_chrom, other_df)
     raise InvariantViolation(f"unknown variant_key: {variant_key!r}")
 
 
