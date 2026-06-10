@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- **Recovered most of the v0.5.0 preflight throughput regression.** The chr_pos key path in `compute_preflight` no longer builds a Python `set` of `(chrom, pos)` 2-tuples — it packs each pair into a sorted-unique `int64` array (`(chrom << 40) | pos`) and computes intersection / per-chrom counts with `np.intersect1d` / `np.unique`, eliminating the per-row Python object construction that dominated the v0.5.0 regression. The `id` key path stays set-based on purpose: `np.unique` on string arrays measured 5× slower than a Python set comprehension at the 100K-variant fixture size. Local microbench (2 × 100K): chr_pos key construction + per-chrom breakdown 88.7ms → 35.0ms (2.5×). A range guard raises `InvariantViolation` on non-physical positions (≥ 2⁴⁰) rather than silently colliding in the packed encoding. `perf_baseline.json` carries a calibration note flagging that the baseline must be re-pinned upward once CI measures the recovered throughput.
+
 ## [0.5.0] - 2026-05-27
 
 ### Added
