@@ -234,3 +234,51 @@ class TestMergeIOFailures:
             assert result.exception is not None
         finally:
             readonly_dir.chmod(0o700)
+
+
+def test_merge_reads_each_pvar_exactly_once(tmp_path: Path) -> None:
+    """Regression: the always-on preflight feature must NOT double-read the
+    .pvar files. `run_merge` reads each input's .pvar once (step 9a) and
+    threads the DataFrames to both `compute_preflight` and `merge_inputs`.
+
+    Before the cache-threading follow-up, preflight and merge_inputs each
+    read independently — 2N reads for N inputs. This test pins the single-
+    read contract so a future refactor can't silently reintroduce the
+    redundant scan that dominated the v0.5.0 preflight throughput cost.
+    """
+    from unittest.mock import patch
+
+    import pgen_samplebind.pvar as pvarmod
+    from pgen_samplebind.commands.merge_cmd import run_merge
+    from pgen_samplebind.types import MergePolicy
+
+    a = synthesize_pfile(
+        SyntheticPanelSpec(
+            n_samples=20, n_variants=200, n_populations=2,
+            chromosomes=(1, 2), variant_seed=1, sample_seed=2, sample_id_prefix="A",
+        ),
+        tmp_path / "a",
+    ).path
+    b = synthesize_pfile(
+        SyntheticPanelSpec(
+            n_samples=20, n_variants=200, n_populations=2,
+            chromosomes=(1, 2), variant_seed=1, sample_seed=3, sample_id_prefix="B",
+        ),
+        tmp_path / "b",
+    ).path
+
+    calls = {"n": 0}
+    real = pvarmod.read_pvar
+
+    def counting(path):
+        calls["n"] += 1
+        return real(path)
+
+    # Patch every name the two call sites resolve read_pvar through.
+    with patch("pgen_samplebind.commands.merge_cmd.read_pvar", side_effect=counting), \
+         patch("pgen_samplebind.merge.pvar.read_pvar", side_effect=counting), \
+         patch("pgen_samplebind.preflight.read_pvar", side_effect=counting):
+        run_merge((a, b), (), tmp_path / "out", MergePolicy(), None, None, quiet=True)
+
+    # Exactly one read per input (2), not 2 per input (4).
+    assert calls["n"] == 2, f"expected 2 reads (one per input), got {calls['n']}"

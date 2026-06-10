@@ -22,7 +22,7 @@ from ..preflight import (
     format_gate_message,
     write_preflight_json,
 )
-from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent
+from ..pvar import check_max_alleles, check_pvar_pgen_row_count_consistent, read_pvar
 from ..types import (
     InputDescriptor,
     MergeContext,
@@ -211,13 +211,26 @@ def run_merge(
             for d, df, n_variants in zip(descriptors, psam_dfs, n_variants_per_input, strict=True)
         ]
 
+        # Step 9a: read every .pvar exactly once, here. Both the preflight
+        # report (step 9b) and the pass-1 alignment table (step 12, inside
+        # merge_inputs) consume these DataFrames — passing them through
+        # avoids the redundant per-input read that the always-on preflight
+        # feature otherwise adds on top of merge_inputs's own read. At
+        # 84M-variant panel scale the second read dominated the preflight
+        # throughput cost (see perf_baseline.json calibration note). The
+        # read happens after descriptors are finalized so pvar paths are
+        # resolved; the DataFrames stay alive through pass 2 either way
+        # (merge_inputs held them internally before), so there's no net
+        # memory increase — only one fewer full scan per input.
+        pvars = [read_pvar(d.pvar_path) for d in descriptors]
+
         # Step 9b: emit preflight report (schema v1) before pass 2 so users
         # see input-compatibility numbers even on runs that later fail in
         # the merge. The classifier (step 3) populates per-comparison
         # `classification` / `evidence`; the gate (step 4) consumes those
         # plus `policy.preflight_policy` to decide warn / strict / off.
         preflight_report = compute_preflight(
-            descriptors, policy, tool_version=__version__, command="merge"
+            descriptors, policy, tool_version=__version__, command="merge", pvars=pvars
         )
         preflight_report = evaluate_gate(preflight_report, policy)
         write_preflight_json(preflight_report, out_preflight_path)
@@ -283,7 +296,9 @@ def run_merge(
             # Step 12: merge_inputs (pass 1 + gates + pass 2; writes .pgen +
             # .pvar + report TSV if ctx.report_tsv_path; populates
             # counters.variant_rows if ctx.collect_variant_rows).
-            counters = merge_inputs(descriptors, out_pgen_path, out_pvar_path, ctx)
+            counters = merge_inputs(
+                descriptors, out_pgen_path, out_pvar_path, ctx, pvars=pvars
+            )
 
             # Step 13: psam finalization
             merged_psam = psam.merge_psams(psam_dfs, sample_plan)
