@@ -75,6 +75,16 @@ mypy src/
 - **`ruff`**: linting (E/F/W/I/B/UP/SIM/RUF rule sets per `pyproject.toml`) and formatting. Run `ruff format src/ tests/` to auto-fix formatting.
 - **`mypy`**: strict mode over `src/pgen_samplebind` only. The scope is set via `files = ["src/pgen_samplebind"]` in `pyproject.toml`'s `[tool.mypy]` section, so `mypy` with no args (the form CI runs as `mypy src/`) checks just the library code. `pgenlib` has no stubs upstream, so it's marked `ignore_missing_imports`.
 
+### Pre-push hook (recommended)
+
+CI's `lint` step runs **both** `ruff check` and `ruff format --check`, and it gates the test matrix — so a commit that passes `ruff check` but isn't formatted fails the whole CI run before any test executes. To catch that locally, enable the tracked pre-push hook once per clone:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+`scripts/git-hooks/pre-push` runs the same two ruff invocations CI does and aborts the push on any nonzero exit. Bypass for a deliberate WIP push with `git push --no-verify`.
+
 Running `mypy tests/` explicitly would type-check the test suite under strict mode and surface a different (noisier) set of findings — the strict gate is intentionally narrow to keep test-writing friction low. New tests should still type-annotate fixtures and helpers, but they aren't gated by CI.
 
 ## Commit + PR conventions

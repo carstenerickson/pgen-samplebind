@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-push guard: run the exact two ruff invocations CI's lint step runs, so a
+# push that passes `ruff check` but fails `ruff format --check` (or vice versa)
+# is caught locally instead of red-X'ing the whole CI matrix — the lint step
+# gates the test jobs, so a formatting slip fails everything fast.
+#
+# Install once per clone (enables every hook under scripts/git-hooks/):
+#     git config core.hooksPath scripts/git-hooks
+#
+# Bypass for a one-off (e.g. pushing a WIP branch): git push --no-verify
+set -euo pipefail
+
+echo "pre-push: ruff check src/ tests/"
+ruff check src/ tests/
+
+echo "pre-push: ruff format --check src/ tests/"
+ruff format --check src/ tests/
+
+echo "pre-push: ruff OK"
