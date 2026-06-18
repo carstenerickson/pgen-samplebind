@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-18
+
 ### Performance
 
 - **Recovered the v0.5.0 preflight throughput regression in two steps.**
@@ -206,7 +208,9 @@ Initial public release. The missing `plink2 --pmerge` non-concatenating case for
 - BFILE-only output not supported (use `plink2 --pfile out --make-bed` if needed).
 - EIGENSTRAT/BFILE input requires `plink2 v2.0.0-a.7.1+` on PATH (the `--eigfile`/`--make-pgen` path); pure-PFILE workflows have no plink2 dependency.
 
-[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/carstenerickson/pgen-samplebind/compare/v0.3.0...v0.3.1
