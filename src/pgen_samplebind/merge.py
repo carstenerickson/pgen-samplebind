@@ -26,7 +26,7 @@ from .alignment import (
     emit_extras_warning,
     evaluate_pass1_gates,
 )
-from .errors import IOFailure, ValidationError
+from .errors import InvariantViolation, IOFailure, ValidationError
 from .types import (
     AlignmentSummary,
     InputDescriptor,
@@ -248,11 +248,20 @@ def merge_inputs(
     out_pgen_path: Path,
     out_pvar_path: Path,
     ctx: MergeContext,
+    pvars: list[pd.DataFrame] | None = None,
 ) -> MergeCounters:
     """Pass 1 + Exit-1 gate evaluation + pass 2
 
+    If `pvars` is supplied it must be parallel to `inputs` (same length,
+    same order) and the internal `read_pvar` loop is skipped — the
+    orchestrator reads each .pvar once and feeds the same DataFrames to
+    `compute_preflight` and here, avoiding a redundant read per input at
+    84M-variant panel scale. `pvars=None` preserves the standalone
+    behavior (read internally) for any caller that doesn't pre-read.
+
     Internally:
-      1. Read pvars; build alignment_table via alignment.build_alignment_table.
+      1. Read pvars (unless supplied); build alignment_table via
+         alignment.build_alignment_table.
       2. evaluate_pass1_gates (a)/(b) — raises ValidationError on either.
       3. Filter to kept variants; open PgenWriter with exact variant_ct +
          sample_ct from sample_plan.
@@ -271,7 +280,13 @@ def merge_inputs(
     import pgenlib
 
     # ----- Pass 1 -----
-    pvars = [pvar.read_pvar(d.pvar_path) for d in inputs]
+    if pvars is None:
+        pvars = [pvar.read_pvar(d.pvar_path) for d in inputs]
+    elif len(pvars) != len(inputs):
+        raise InvariantViolation(
+            f"merge_inputs: pvars length {len(pvars)} != inputs length {len(inputs)} "
+            "(callers must pass a list parallel to inputs)"
+        )
     canonical_pvar = pvars[0]
     other_pvars = pvars[1:]
     summary = AlignmentSummary()

@@ -17,6 +17,9 @@ import pytest
 from pgen_samplebind.errors import InvariantViolation
 from pgen_samplebind.preflight import (
     PREFLIGHT_SCHEMA_VERSION,
+    _intersection_count,
+    _key_universe,
+    _unique_chr_pos_codes,
     compute_preflight,
     evaluate_gate,
     write_preflight_json,
@@ -409,3 +412,94 @@ def test_build_shift_signature_absent_when_no_qualifying_chroms(tmp_path: Path) 
     pair = report.comparisons[0]
     assert pair.classification == "compatible"
     assert pair.build_shift_signature is None
+
+
+def test_chr_pos_code_encoding_matches_tuple_set_semantics() -> None:
+    """The int64 (chrom, pos) encoding must be collision-free and produce
+    exactly the same dedup + intersection counts as the prior
+    `set(zip(chrom, pos))` representation it replaced (issue #12 perf
+    follow-up — vectorizing the dominant cost must not change results).
+    """
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(7)
+    chrom_a = rng.integers(1, 27, size=5000)
+    pos_a = rng.integers(1, 250_000_000, size=5000)
+    a = pd.DataFrame({"chrom": chrom_a, "pos": pos_a, "id": ["."] * 5000})
+    # b shares the first 2000 rows of a, plus 3000 fresh ones.
+    chrom_b = np.concatenate([chrom_a[:2000], rng.integers(1, 27, size=3000)])
+    pos_b = np.concatenate([pos_a[:2000], rng.integers(1, 250_000_000, size=3000)])
+    b = pd.DataFrame({"chrom": chrom_b, "pos": pos_b, "id": ["."] * 5000})
+
+    # Reference: the old set-of-tuples semantics.
+    set_a = set(zip(chrom_a.tolist(), pos_a.tolist(), strict=True))
+    set_b = set(zip(chrom_b.tolist(), pos_b.tolist(), strict=True))
+
+    codes_a = _unique_chr_pos_codes(a)
+    codes_b = _unique_chr_pos_codes(b)
+    assert codes_a.size == len(set_a)
+    assert codes_b.size == len(set_b)
+    assert _intersection_count(codes_a, codes_b) == len(set_a & set_b)
+
+
+def test_chr_pos_code_encoding_rejects_out_of_range_pos() -> None:
+    """A non-physical position (>= 2^40) would collide in the packed
+    encoding, so the encoder raises rather than silently miscounting."""
+    import pandas as pd
+
+    bad = pd.DataFrame({"chrom": [1], "pos": [1 << 40], "id": ["."]})
+    with pytest.raises(InvariantViolation, match="out of range"):
+        _unique_chr_pos_codes(bad)
+
+
+def test_key_universe_id_filters_placeholders() -> None:
+    """The id universe stays set-based (faster than numpy for strings) and
+    filters placeholder IDs — the vectorization only touched chr_pos."""
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {"chrom": [1, 1, 2, 2], "pos": [10, 20, 30, 40], "id": ["rs1", ".", "rs2", "NA"]}
+    )
+    universe = _key_universe(df, "id")
+    assert universe == {"rs1", "rs2"}
+
+
+def test_chr_pos_intersection_computed_once_per_comparison(tmp_path: Path) -> None:
+    """Regression: the active-key intersection must be computed ONCE per
+    comparison and reused for both the scalar count and the per-chrom
+    breakdown — not intersected twice. Pins the dedup so a future refactor
+    can't silently reintroduce the second np.intersect1d that the perf
+    follow-up removed. Also asserts the per-chrom intersection partitions
+    the scalar exactly (the reuse is correct, not just cheaper).
+    """
+    from unittest.mock import patch
+
+    import numpy as np
+
+    import pgen_samplebind.preflight as pf
+
+    # 3-input merge (2 non-canonical comparisons) so the count is unambiguous.
+    paths = [
+        _panel(tmp_path, name, variant_seed=1)  # identical variant_seed → shared chr_pos
+        for name in ("a", "b", "c")
+    ]
+    descriptors = [_descriptor(p) for p in paths]
+
+    real = np.intersect1d
+    calls = {"n": 0}
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    with patch.object(pf.np, "intersect1d", side_effect=counting):
+        report = compute_preflight(descriptors, MergePolicy(), tool_version="test", command="merge")
+
+    # Active key chr_pos: exactly one intersect1d per non-canonical input.
+    # The alternate key here is id (set-based, no intersect1d). Two
+    # comparisons → 2 calls. Before the dedup this was 4 (count + per-chrom).
+    assert calls["n"] == 2, f"expected 1 intersect per comparison (2), got {calls['n']}"
+    # Correctness: per-chrom intersections sum to the scalar for each pair.
+    for c in report.comparisons:
+        assert sum(pc.intersection for pc in c.per_chrom) == c.intersection
