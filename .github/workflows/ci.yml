@@ -6,13 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-# Opt JS-based actions in to Node.js 24 ahead of GitHub's June 2026 forced
-# migration. ci.yml currently only uses checkout@v5 + setup-python@v6 (already
-# on Node 24); kept here for consistency with release.yml so future action
-# additions don't trip the deprecation warning.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
@@ -142,7 +135,7 @@ jobs:
       # Cache key includes the admixtools ref so a ref bump auto-invalidates.
       - name: Cache R packages
         id: cache-r
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.R_LIBS_USER }}
           key: r-admixtools-${{ runner.os }}-R4.4-stable-build-runnable-v1
