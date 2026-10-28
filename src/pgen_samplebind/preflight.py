@@ -667,10 +667,10 @@ def _unique_chr_pos_codes(df: pd.DataFrame) -> np.ndarray[Any, Any]:
     """Encode each (chrom, pos) row as one int64 and return sorted-unique codes."""
     chrom = np.asarray(df["chrom"], dtype=np.int64)
     pos = np.asarray(df["pos"], dtype=np.int64)
-    if pos.size and (pos.max() >= (1 << _CHROM_SHIFT) or pos.min() < 0):
+    if pos.size and (np.max(pos) >= (1 << _CHROM_SHIFT) or np.min(pos) < 0):
         raise InvariantViolation(
             f"position out of range for chr_pos key encoding: "
-            f"max={int(pos.max())}, min={int(pos.min())} (expected 0 <= pos < 2^{_CHROM_SHIFT})"
+            f"max={int(np.max(pos))}, min={int(np.min(pos))} (expected 0 <= pos < 2^{_CHROM_SHIFT})"
         )
     return np.unique((chrom << _CHROM_SHIFT) | pos)
 
